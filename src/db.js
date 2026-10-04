@@ -81,6 +81,9 @@ export async function migrate() {
     )
   `)
   await query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS clerk_user_id TEXT`)
+  await query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS profile_readme TEXT`)
+  await query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS headline TEXT`)
+  await query(`ALTER TABLE links ADD COLUMN IF NOT EXISTS education TEXT`)
   await query(`CREATE UNIQUE INDEX IF NOT EXISTS accounts_clerk_user ON accounts (clerk_user_id)`)
   await query(`
     CREATE TABLE IF NOT EXISTS sessions (
@@ -173,12 +176,16 @@ export async function upsertAccount(account) {
     )
     ON CONFLICT (github_id) DO UPDATE SET
       login = EXCLUDED.login,
-      name = EXCLUDED.name,
+      name = CASE
+        WHEN NULLIF(EXCLUDED.name, '') IS NOT NULL AND lower(EXCLUDED.name) <> lower(EXCLUDED.login) THEN EXCLUDED.name
+        WHEN accounts.name IS NULL OR btrim(accounts.name) = '' OR lower(accounts.name) = lower(COALESCE(accounts.login, '')) THEN COALESCE(NULLIF(EXCLUDED.name, ''), '')
+        ELSE accounts.name
+      END,
       email = EXCLUDED.email,
       avatar_url = EXCLUDED.avatar_url,
       bio = EXCLUDED.bio,
       blog = EXCLUDED.blog,
-      location = EXCLUDED.location,
+      location = COALESCE(NULLIF(accounts.location, ''), EXCLUDED.location),
       token_ciphertext = EXCLUDED.token_ciphertext,
       can_read_private = EXCLUDED.can_read_private,
       clerk_user_id = COALESCE(EXCLUDED.clerk_user_id, accounts.clerk_user_id),
@@ -203,6 +210,48 @@ export async function upsertAccount(account) {
   return result.rows[0]
 }
 
+export async function latestPerson(accountId) {
+  const result = await query(
+    `SELECT display_name, headline, location
+     FROM links WHERE account_id = $1
+     ORDER BY updated_at DESC
+     LIMIT 1`,
+    [accountId],
+  )
+  return result.rows[0] || null
+}
+
+export async function applyProfileName(id, login, name) {
+  await query(
+    `UPDATE accounts SET name = $2, updated_at = NOW()
+     WHERE id = $1 AND (name IS NULL OR btrim(name) = '' OR lower(name) = lower($3))`,
+    [id, name, login || ''],
+  )
+  await query(
+    `UPDATE links SET display_name = $2, updated_at = NOW()
+     WHERE account_id = $1 AND (display_name IS NULL OR btrim(display_name) = '' OR lower(display_name) = lower($3))`,
+    [id, name, login || ''],
+  )
+  await query(
+    `UPDATE links
+     SET resume = jsonb_set(resume, '{name}', to_jsonb($2::text), false)
+     WHERE account_id = $1 AND resume IS NOT NULL
+       AND lower(COALESCE(resume->>'name', '')) = lower($3)`,
+    [id, name, login || ''],
+  )
+}
+
+export async function rememberPerson(id, fields) {
+  await query(
+    `UPDATE accounts SET name = $2, headline = $3, location = $4, updated_at = NOW() WHERE id = $1`,
+    [id, fields.name || '', fields.headline || '', fields.location || ''],
+  )
+}
+
+export async function setProfileReadme(id, text) {
+  await query('UPDATE accounts SET profile_readme = $2, updated_at = NOW() WHERE id = $1', [id, text || ''])
+}
+
 export async function getAccount(id) {
   const result = await query('SELECT * FROM accounts WHERE id = $1', [id])
   return result.rows[0] || null
@@ -225,12 +274,17 @@ export async function attachGithub(id, account) {
     `UPDATE accounts SET
       github_id = $2,
       login = $3,
-      name = COALESCE(NULLIF($4, ''), name),
+      name = CASE
+        WHEN NULLIF($4, '') IS NOT NULL AND lower($4) <> lower($3) THEN
+          CASE WHEN accounts.name IS NULL OR btrim(accounts.name) = '' OR lower(accounts.name) = lower($3) THEN $4 ELSE accounts.name END
+        WHEN accounts.name IS NULL OR btrim(accounts.name) = '' OR lower(accounts.name) = lower($3) THEN ''
+        ELSE accounts.name
+      END,
       email = COALESCE(NULLIF($5, ''), email),
       avatar_url = $6,
       bio = $7,
       blog = $8,
-      location = COALESCE(NULLIF($9, ''), location),
+      location = COALESCE(NULLIF(accounts.location, ''), NULLIF($9, '')),
       token_ciphertext = $10,
       can_read_private = $11,
       updated_at = NOW()
@@ -277,8 +331,8 @@ export async function createLink(accountId, fields) {
     try {
       const result = await query(
         `INSERT INTO links (
-          id, account_id, slug, visibility, display_name, headline, email, location, role_target, instructions, selected_repos, status
-        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'preparing')
+          id, account_id, slug, visibility, display_name, headline, email, location, role_target, instructions, education, selected_repos, status
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'preparing')
         RETURNING *`,
         [
           crypto.randomUUID(),
@@ -291,6 +345,7 @@ export async function createLink(accountId, fields) {
           fields.location || '',
           fields.roleTarget || '',
           fields.instructions || '',
+          fields.education || '',
           fields.repos,
         ],
       )
@@ -311,6 +366,7 @@ export async function updateLink(id, accountId, fields) {
     location: 'location',
     roleTarget: 'role_target',
     instructions: 'instructions',
+    education: 'education',
     selectedRepos: 'selected_repos',
     status: 'status',
   }
@@ -523,9 +579,12 @@ function projectFrom(reading, signal) {
     url: detail.url || '',
     private: Boolean(detail.private),
     language: signal?.primary_language || '',
+    languages: Array.isArray(detail.languages) ? detail.languages : [],
+    skills: Array.isArray(detail.skills) ? detail.skills : [],
     description: detail.description || '',
     conclusion: reading.conclusion,
     highlights: detail.highlights || [],
+    contributions: Array.isArray(detail.contributions) ? detail.contributions : [],
     readmeWasThin: reading.readme_was_thin,
     needsLocal: Boolean(detail.needsLocal),
     reader: detail.reader || '',

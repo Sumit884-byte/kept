@@ -2,7 +2,7 @@ import { config } from './config.js'
 import { copy } from './copy.js'
 import { decrypt } from './cryptoBox.js'
 import * as db from './db.js'
-import { GithubError, ensureHook, gatherRepo } from './github.js'
+import { GithubError, ensureHook, gatherRepo, listPulls, profileName, profileReadme } from './github.js'
 import { interpret } from './analyze.js'
 import { cleanConclusion } from './public/gemmaText.js'
 import { composeResume } from './resume.js'
@@ -21,9 +21,28 @@ function humanError(error) {
   return copy.errors.readFailed
 }
 
+async function personNotes(account) {
+  if (account.preview) {
+    return { profileText: samplePerson.profileReadme || '', pulls: samplePerson.pulls || [] }
+  }
+  if (!account.token_ciphertext || !account.login) return { profileText: account.profile_readme || '', pulls: [] }
+  try {
+    const token = decrypt(account.token_ciphertext)
+    const readme = await profileReadme(token, account.login)
+    const profileText = readme || account.profile_readme || ''
+    if (readme && readme !== account.profile_readme) await db.setProfileReadme(account.id, readme)
+    const pulls = await listPulls(token, account.login)
+    return { profileText, pulls }
+  } catch (error) {
+    console.error('profile notes failed', error.message)
+    return { profileText: account.profile_readme || '', pulls: [] }
+  }
+}
+
 async function writeResume(link, account, projects, reason) {
+  const notes = await personNotes(account)
   const person = {
-    name: link.display_name || account.name || account.login,
+    name: profileName(link.display_name, account.login) || profileName(account.name, account.login) || '',
     email: link.email || account.email || '',
     location: link.location || account.location || '',
     blog: account.preview ? '' : (account.blog || ''),
@@ -34,6 +53,9 @@ async function writeResume(link, account, projects, reason) {
     roleTarget: link.role_target || '',
     instructions: link.instructions || '',
     headline: link.headline || '',
+    education: link.education || '',
+    profileText: notes.profileText,
+    pulls: notes.pulls,
   }
   const composed = composeResume({ person, projects, prefs })
   const tailored = await tailorResume(composed, projects, prefs)

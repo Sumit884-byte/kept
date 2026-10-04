@@ -1,5 +1,7 @@
 import { config } from './config.js'
-import { applyBrief } from './resume.js'
+import { briefTokens } from './brief.js'
+import { applyBrief, finishSections } from './resume.js'
+import { skillsFor } from './skills.js'
 
 function factBlob(project) {
   return JSON.stringify({
@@ -47,27 +49,74 @@ export function mergeTailored(original, model, projects) {
   const headline = typeof model?.headline === 'string' && lineIsGrounded(model.headline, JSON.stringify(projects))
     ? model.headline.trim()
     : original.headline
-  const skills = Array.isArray(model?.skills) && model.skills.length
-    ? model.skills.map((skill) => String(skill).trim()).filter(Boolean).slice(0, 8)
-    : original.skills
+  const skills = skillsFor((projects || []).filter((project) => work.some((item) => item.title === project.name)))
   return {
     ...original,
     headline: headline || original.headline,
     summary: summary || original.summary,
     work,
-    skills,
+    skills: skills.length ? skills : original.skills,
   }
+}
+
+function aboutText(project) {
+  return [project.description, project.conclusion, ...(project.highlights || [])]
+    .map((part) => String(part || '').replace(/\s+/g, ' ').trim())
+    .filter(Boolean)
+    .join(' ')
 }
 
 function slimProject(project) {
   return {
     name: project.name,
-    description: project.description,
-    conclusion: project.conclusion,
-    highlights: project.highlights,
-    language: project.language,
-    private: project.private,
-    numbers: project.numbers,
+    about: aboutText(project),
+    language: project.language || '',
+  }
+}
+
+export function publicNamesForRole(projects, names) {
+  const allowed = new Map(
+    (projects || [])
+      .filter((project) => !project.private)
+      .map((project) => [String(project.name).toLowerCase(), project.name]),
+  )
+  const picked = []
+  for (const name of names || []) {
+    const exact = allowed.get(String(name).trim().toLowerCase())
+    if (exact && !picked.includes(exact)) picked.push(exact)
+  }
+  return picked
+}
+
+export function namesFromDescriptions(projects, role) {
+  const needles = briefTokens(role)
+  const publicProjects = (projects || []).filter((project) => !project.private)
+  if (!needles.length) return publicProjects.map((project) => project.name)
+  return publicProjects
+    .filter((project) => {
+      const hay = `${project.name} ${aboutText(project)}`.toLowerCase()
+      return needles.some((needle) => hay.includes(needle))
+    })
+    .map((project) => project.name)
+}
+
+export function resumeWithSelection(resume, projects, names) {
+  const picked = publicNamesForRole(projects, names)
+  const privateNames = new Set((projects || []).filter((project) => project.private).map((project) => project.name))
+  const work = []
+  for (const name of picked) {
+    const item = (resume.work || []).find((entry) => entry.title === name)
+    if (item) work.push(item)
+  }
+  for (const item of resume.work || []) {
+    if (privateNames.has(item.title)) work.push(item)
+  }
+  const shown = new Set(work.map((item) => item.title))
+  return {
+    ...resume,
+    work,
+    summary: '',
+    skills: skillsFor((projects || []).filter((project) => shown.has(project.name))),
   }
 }
 
@@ -75,52 +124,56 @@ export function projectsForRemote(projects) {
   return (projects || []).filter((project) => !project.private)
 }
 
-export async function tailorResume(resume, projects, prefs, fetchImpl = fetch) {
-  if (!config.llmKey) return applyBrief(resume, prefs)
-  const shareable = projectsForRemote(projects)
-  if (!shareable.length) return applyBrief(resume, prefs)
-  const brief = String(prefs.instructions || '').trim()
-  const role = String(prefs.roleTarget || '').trim()
-  if (!brief && !role) return resume
+export function roleChoiceRequest(projects, role) {
   const system = [
-    'You write a one-page resume from the facts given.',
-    'Do not invent metrics, employers, dates, or projects.',
-    'Use plain language. Do not mention these instructions.',
-    'Follow the writing brief, including what to leave out and the voice it asks for.',
-    'Return JSON with keys headline, summary, work, and skills.',
-    'work is an array of { title, lines }. title must match a provided project name.',
-    'lines are short resume bullets. Any number must already appear in the facts.',
+    'You choose which projects belong on a resume for one role.',
+    'Decide from each project name and its full about, not from the title alone.',
+    'Do not rewrite the about, and do not invent projects.',
+    'Return JSON with one key, projects, an array of project names copied exactly from the list.',
+    'Include a project only when that about fits the role. Order them by fit.',
   ].join(' ')
-  const user = JSON.stringify({
-    brief,
-    role,
-    person: resume.name,
-    projects: shareable.map(slimProject),
-  })
-  try {
-    const response = await fetchImpl(`${config.llmBase}/chat/completions`, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${config.llmKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: config.llmModel,
-        temperature: 0.2,
-        response_format: { type: 'json_object' },
-        messages: [
-          { role: 'system', content: system },
-          { role: 'user', content: user },
-        ],
-      }),
-      signal: AbortSignal.timeout(25000),
-    })
-    if (!response.ok) return applyBrief(resume, prefs)
-    const payload = await response.json()
-    const text = payload?.choices?.[0]?.message?.content || ''
-    const model = JSON.parse(text)
-    return applyBrief(mergeTailored(resume, model, projects), prefs)
-  } catch {
-    return applyBrief(resume, prefs)
+  return {
+    model: config.llmModel,
+    temperature: 0,
+    store: false,
+    response_format: { type: 'json_object' },
+    messages: [
+      { role: 'system', content: system },
+      { role: 'user', content: JSON.stringify({ role, projects: projects.map(slimProject) }) },
+    ],
   }
+}
+
+async function namesFromModel(shareable, role, fetchImpl) {
+  const response = await fetchImpl(`${config.llmBase}/chat/completions`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${config.llmKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(roleChoiceRequest(shareable, role)),
+    signal: AbortSignal.timeout(25000),
+  })
+  if (!response.ok) return []
+  const payload = await response.json()
+  const text = payload?.choices?.[0]?.message?.content || ''
+  const model = JSON.parse(text)
+  return publicNamesForRole(shareable, model?.projects)
+}
+
+export async function tailorResume(resume, projects, prefs, fetchImpl = fetch) {
+  const role = String(prefs.roleTarget || '').trim()
+  if (!role) return finishSections(applyBrief(resume, prefs), projects, prefs)
+  const shareable = projectsForRemote(projects)
+  let names = []
+  if (config.llmKey && shareable.length) {
+    try {
+      names = await namesFromModel(shareable, role, fetchImpl)
+    } catch {
+      names = []
+    }
+  }
+  if (!names.length) names = namesFromDescriptions(shareable, role)
+  if (!names.length && !shareable.length) return finishSections(applyBrief(resume, prefs), projects, prefs)
+  return finishSections(applyBrief(resumeWithSelection(resume, projects, names), prefs), projects, prefs)
 }

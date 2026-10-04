@@ -1,6 +1,6 @@
 import { copy } from '/copy.js'
 import { readPrivateLocally } from './privateRead.js'
-import { beginSignIn, clerkMessage, confirmSignIn, loadClerk, logIn } from './auth.js'
+import { beginSignIn, clerkMessage, confirmSignIn, continueWithGoogle, finishGoogleRedirect, loadClerk, logIn } from './auth.js'
 
 const state = {
   me: null,
@@ -23,6 +23,10 @@ const state = {
   watchToken: 0,
   authStep: 'details',
   needGithub: false,
+  callbackStarted: false,
+  projectsOpen: false,
+  fillRepos: false,
+  filledFor: '',
 }
 
 function esc(value) {
@@ -35,11 +39,17 @@ function esc(value) {
   }[ch]))
 }
 
+function starCount(count) {
+  const n = Math.max(0, Math.round(Number(count) || 0))
+  return `${n.toLocaleString('en-US')} ${n === 1 ? 'star' : 'stars'}`
+}
+
 function parse(pathname) {
   if (pathname === '/') return { name: 'home' }
   if (pathname === '/start') return { name: 'start' }
   if (pathname === '/sign-in') return { name: 'sign-in' }
   if (pathname === '/join') return { name: 'join' }
+  if (pathname === '/sso-callback') return { name: 'callback' }
   if (pathname === '/studio') return { name: 'studio' }
   if (pathname === '/links') return { name: 'links' }
   const match = pathname.match(/^\/links\/([0-9a-f-]{36})$/i)
@@ -93,6 +103,7 @@ function go(path) {
   state.authStep = 'details'
   if (path === '/studio') {
     state.form = blankForm(state.me?.account)
+    state.projectsOpen = false
     state.projectsFor = ''
     state.current = null
   }
@@ -104,7 +115,7 @@ function paper(resume) {
   const contact = (resume.contact || []).map((item) => `<span>${esc(item)}</span>`).join('')
   const work = (resume.work || []).map((item) => `
     <section>
-      <h3>${esc(item.title)}</h3>
+      <h3>${esc(item.title)}${item.stars > 0 ? `<span class="star-count">${esc(starCount(item.stars))}</span>` : ''}</h3>
       ${item.url ? `<p class="paper-url">${esc(item.url)}</p>` : ''}
       <ul>${(item.lines || []).map((line) => `<li>${esc(line)}</li>`).join('')}</ul>
     </section>`).join('')
@@ -113,8 +124,10 @@ function paper(resume) {
     ${contact ? `<p class="paper-contact">${contact}</p>` : ''}
     ${resume.headline ? `<p class="paper-line">${esc(resume.headline)}</p>` : ''}
     ${resume.summary ? `<p class="paper-summary">${esc(resume.summary)}</p>` : ''}
-    ${work ? `<h2>${esc(copy.pdf.selectedWork)}</h2>${work}` : ''}
+    ${(resume.education || []).length ? `<h2>${esc(copy.pdf.education)}</h2><ul class="paper-education">${resume.education.map((line) => `<li>${esc(line)}</li>`).join('')}</ul>` : ''}
     ${resume.skills?.length ? `<h2>${esc(copy.pdf.skills)}</h2><p class="paper-skills">${esc(resume.skills.join(', '))}</p>` : ''}
+    ${work ? `<h2>${esc(copy.pdf.selectedWork)}</h2>${work}` : ''}
+    ${(resume.contributions || []).length ? `<h2>${esc(copy.pdf.contributions)}</h2>${resume.contributions.map((item) => `<section><h3>${esc(item.title || '')}</h3>${item.url ? `<p class="paper-url">${esc(item.url)}</p>` : ''}<ul><li>${esc(item.line)}</li></ul></section>`).join('')}` : ''}
   </article>`
 }
 
@@ -195,6 +208,10 @@ function viewStart() {
   </section>`
 }
 
+function googleMark() {
+  return `<svg viewBox="0 0 18 18" width="18" height="18" aria-hidden="true"><path fill="#4285F4" d="M17.64 9.2c0-.64-.06-1.25-.16-1.84H9v3.48h4.84a4.14 4.14 0 0 1-1.8 2.72v2.26h2.9c1.7-1.57 2.7-3.88 2.7-6.62z"/><path fill="#34A853" d="M9 18c2.43 0 4.47-.8 5.96-2.18l-2.9-2.26c-.81.54-1.84.86-3.06.86-2.35 0-4.34-1.59-5.05-3.72H.96v2.33A9 9 0 0 0 9 18z"/><path fill="#FBBC05" d="M3.95 10.7A5.4 5.4 0 0 1 3.66 9c0-.59.1-1.16.29-1.7V4.97H.96A9 9 0 0 0 0 9c0 1.45.35 2.82.96 4.03l2.99-2.33z"/><path fill="#EA4335" d="M9 3.58c1.32 0 2.5.45 3.44 1.35l2.58-2.58C13.46.89 11.43 0 9 0A9 9 0 0 0 .96 4.97L3.95 7.3C4.66 5.17 6.65 3.58 9 3.58z"/></svg>`
+}
+
 function viewAuth(mode) {
   const joining = mode === 'join'
   const ready = state.me?.signInReady
@@ -208,6 +225,7 @@ function viewAuth(mode) {
     : `<label class="field"><span>${esc(copy.auth.email)}</span><input name="email" type="email" autocomplete="email" required></label>
        <label class="field"><span>${esc(copy.auth.password)}</span><input name="password" type="password" autocomplete="${joining ? 'new-password' : 'current-password'}" required></label>`
   const button = codeStep ? copy.auth.confirm : (joining ? copy.nav.signIn : copy.nav.login)
+  const google = codeStep ? '' : `<button class="button google" type="button" data-action="google" ${!ready || state.busy ? 'disabled' : ''}>${googleMark()}<span>${esc(copy.auth.google)}</span></button><p class="auth-or">${esc(copy.auth.or)}</p>`
   return `<section class="panel">
     <div class="auth-switch" role="tablist">
       <a href="${loginHref}" data-go="${loginHref}" class="${joining ? '' : 'is-on'}" role="tab" aria-selected="${joining ? 'false' : 'true'}">${esc(copy.nav.login)}</a>
@@ -218,6 +236,7 @@ function viewAuth(mode) {
     ${banner()}
     ${ready ? '' : `<p class="quiet">${esc(copy.auth.notReady)}</p>`}
     <form id="${codeStep ? 'auth-code' : 'auth-form'}" class="auth-form">
+      ${google}
       ${fields}
       <div id="clerk-captcha"></div>
       <div class="actions">
@@ -233,31 +252,63 @@ function fields(values) {
     <label class="field"><span>${esc(copy.studio.name)}</span><input name="displayName" value="${esc(values.displayName || '')}"></label>
     <label class="field"><span>${esc(copy.studio.line)}</span><input name="headline" value="${esc(values.headline || '')}"></label>
     <label class="field"><span>${esc(copy.studio.email)}</span><input name="email" type="email" value="${esc(values.email || '')}"></label>
-    <label class="field"><span>${esc(copy.studio.place)}</span><input name="location" value="${esc(values.location || '')}"></label>`
+    <label class="field"><span>${esc(copy.studio.place)}</span><input name="location" value="${esc(values.location || '')}"></label>
+    <label class="field"><span>${esc(copy.studio.education)}</span><textarea name="education" placeholder="${esc(copy.studio.educationPlaceholder)}">${esc(values.education || '')}</textarea></label>
+    <p class="help">${esc(copy.studio.educationHelp)}</p>`
 }
 
-function projectPicker(selected) {
+function projectsInScope(visibility) {
+  return state.projects.filter((project) => visibility === 'all' || !project.private)
+}
+
+function projectList(selected, visibility) {
   const chosen = new Set(selected || [])
   if (state.projectsLoading || !state.projectsFor) return `<p class="quiet">${esc(copy.loading)}</p>`
   if (state.needGithub) return `<p class="quiet">${esc(copy.errors.connectWork)}</p>`
   if (state.needPrivate) {
     return `<p class="quiet">${esc(copy.errors.needPrivate)}</p><p><a class="button" href="/api/auth/github?visibility=all">${esc(copy.studio.allow)}</a></p>`
   }
-  if (state.projectsLoading) return `<p class="quiet">${esc(copy.loading)}</p>`
   if (state.projectsError) return `<p class="banner">${esc(state.projectsError)}</p>`
-  if (!state.projects.length) return `<p class="quiet">${esc(copy.studio.empty)}</p>`
+  const projects = projectsInScope(visibility)
+  if (!projects.length) return `<p class="quiet">${esc(copy.studio.empty)}</p>`
   return `<div class="projects">
-    ${state.projects.map((project) => `<label class="project ${chosen.has(project.fullName) ? 'is-on' : ''}">
-      <input type="checkbox" name="repo" value="${esc(project.fullName)}" ${chosen.has(project.fullName) ? 'checked' : ''}>
+    ${projects.map((project) => `<label class="project ${chosen.has(project.fullName) ? 'is-on' : ''}">
+      <input type="checkbox" name="repo" value="${esc(project.fullName)}" data-private="${project.private ? '1' : '0'}" data-fork="${project.fork ? '1' : '0'}" ${chosen.has(project.fullName) ? 'checked' : ''}>
       <span>
         <strong>${esc(project.name)}</strong>
+        ${project.stars > 0 ? `<span class="star-count">${esc(starCount(project.stars))}</span>` : ''}
         ${project.private ? `<em>${esc(copy.studio.private)}</em>` : ''}
+        ${project.fork ? `<em>${esc(copy.studio.copied)}</em>` : ''}
         ${project.description ? `<small>${esc(project.description)}</small>` : ''}
         <small>${esc(project.updatedLabel || '')}</small>
       </span>
     </label>`).join('')}
-  </div>
-  <p class="help" data-count></p>`
+  </div>`
+}
+
+function projectChoices(values) {
+  const current = values.visibility === 'all' ? 'all' : 'public'
+  const options = [
+    ['public', copy.start.publicTitle, copy.start.publicBody],
+    ['all', copy.start.allTitle, copy.start.allBody],
+  ]
+  return `<div class="choice-row">
+    ${options.map(([value, title, body]) => {
+      const on = current === value
+      return `<div class="choice-block ${on ? 'is-on' : ''}" data-scope="${value}">
+        <label class="choice ${on ? 'is-on' : ''}">
+          <input type="radio" name="visibility" value="${value}" ${on ? 'checked' : ''}>
+          <span><strong>${esc(title)}</strong>${esc(body)}</span>
+        </label>
+        ${on ? `<div class="choice-tools">
+          <button class="text-button" type="button" data-action="toggle-projects">${esc(state.projectsOpen ? copy.studio.hideProjects : copy.studio.leaveSome)}</button>
+          ${projectsInScope(value).some((project) => project.fork) ? `<button class="text-button" type="button" data-action="leave-forks">${esc(copy.studio.leaveForks)}</button>` : ''}
+          <span class="help" data-count></span>
+        </div>
+        ${state.projectsOpen ? projectList(values.repos, value) : ''}` : ''}
+      </div>`
+    }).join('')}
+  </div>`
 }
 
 function briefFields(values) {
@@ -265,20 +316,6 @@ function briefFields(values) {
     <label class="field"><span>${esc(copy.studio.role)}</span><input name="roleTarget" value="${esc(values.roleTarget || '')}" placeholder="${esc(copy.studio.rolePlaceholder)}"></label>
     <label class="field"><span>${esc(copy.studio.brief)}</span><textarea name="instructions" placeholder="${esc(copy.studio.briefPlaceholder)}">${esc(values.instructions || '')}</textarea></label>
     <p class="help">${esc(copy.studio.briefHelp)}</p>`
-}
-
-function visibilityFields(current) {
-  const all = current === 'all'
-  return `<div class="choice-row">
-    <label class="choice ${all ? '' : 'is-on'}">
-      <input type="radio" name="visibility" value="public" ${all ? '' : 'checked'}>
-      <span><strong>${esc(copy.start.publicTitle)}</strong>${esc(copy.start.publicBody)}</span>
-    </label>
-    <label class="choice ${all ? 'is-on' : ''}">
-      <input type="radio" name="visibility" value="all" ${all ? 'checked' : ''}>
-      <span><strong>${esc(copy.start.allTitle)}</strong>${esc(copy.start.allBody)}</span>
-    </label>
-  </div>`
 }
 
 function viewStudio() {
@@ -293,8 +330,7 @@ function viewStudio() {
       ${fields(values)}
       <h2 class="section-label">${esc(copy.studio.projects)}</h2>
       <p class="help">${esc(copy.studio.projectsHelp)}</p>
-      ${visibilityFields(values.visibility)}
-      ${projectPicker(values.repos)}
+      ${projectChoices(values)}
       ${briefFields(values)}
       <button class="button" type="submit" ${state.busy ? 'disabled' : ''}>${esc(state.busy ? copy.studio.creating : copy.studio.create)}</button>
     </form>
@@ -323,6 +359,7 @@ function formFromLink(link) {
     headline: link.headline || '',
     email: link.email || '',
     location: link.location || '',
+    education: link.education || '',
     roleTarget: link.roleTarget || '',
     instructions: link.instructions || '',
     visibility: link.visibility || 'public',
@@ -334,7 +371,10 @@ function viewDetail() {
   const link = state.current
   if (!link) return `<section class="panel"><p class="quiet">${esc(copy.loading)}</p></section>`
   if (!link.resume && link.status !== 'error') {
-    return `<section class="panel"><h1>${esc(copy.detail.waiting)}</h1><p class="quiet" data-live>${esc(copy.studio.creating)}</p></section>`
+    return `<section class="panel wait">
+      <h1>${esc(copy.detail.waiting)}</h1>
+      <div class="wait-bar" aria-hidden="true"><span></span></div>
+    </section>`
   }
   if (!link.resume) {
     return `<section class="panel">${banner()}<p class="banner">${esc(link.lastError || copy.errors.readFailed)}</p>
@@ -359,8 +399,7 @@ function viewDetail() {
       <form id="editor">
         ${fields(values)}
         <h2 class="section-label">${esc(copy.studio.projects)}</h2>
-        ${visibilityFields(values.visibility)}
-        ${projectPicker(values.repos)}
+        ${projectChoices(values)}
         ${briefFields(values)}
         <div class="actions">
           <button class="button" type="submit" ${state.busy ? 'disabled' : ''}>${esc(state.busy ? copy.detail.saving : copy.detail.save)}</button>
@@ -385,9 +424,10 @@ function blankForm(account) {
   const visibility = params.get('visibility') === 'all' || account?.preview ? 'all' : 'public'
   return {
     displayName: account?.name || '',
-    headline: account?.bio || '',
+    headline: account?.headline != null ? account.headline : (account?.bio || ''),
     email: account?.email || '',
     location: account?.location || '',
+    education: '',
     roleTarget: '',
     instructions: '',
     visibility,
@@ -402,17 +442,24 @@ function readEditor(form) {
     headline: String(data.get('headline') || ''),
     email: String(data.get('email') || ''),
     location: String(data.get('location') || ''),
+    education: String(data.get('education') || ''),
     roleTarget: String(data.get('roleTarget') || ''),
     instructions: String(data.get('instructions') || ''),
     visibility: data.get('visibility') === 'all' ? 'all' : 'public',
-    repos: data.getAll('repo').map(String),
+    repos: form.querySelector('input[name="repo"]') ? data.getAll('repo').map(String) : (state.form?.repos || []),
   }
 }
 
 function updateCount() {
-  const count = document.querySelectorAll('#editor input[name="repo"]:checked').length
+  const boxes = document.querySelectorAll('#editor input[name="repo"]')
+  const count = boxes.length
+    ? document.querySelectorAll('#editor input[name="repo"]:checked').length
+    : (state.form?.repos || []).length
   const node = document.querySelector('[data-count]')
-  if (node) node.textContent = `${count} of 8 ${copy.studio.count}`
+  if (node) node.textContent = `${count} ${copy.studio.count}`
+  const publicBoxes = [...document.querySelectorAll('#editor input[name="repo"]')].filter((box) => box.dataset.private !== '1')
+  const selectAll = document.querySelector('#editor [data-select-public]')
+  if (selectAll) selectAll.checked = publicBoxes.length > 0 && publicBoxes.every((box) => box.checked)
   document.querySelectorAll('#editor .project').forEach((card) => {
     const box = card.querySelector('input')
     card.classList.toggle('is-on', Boolean(box?.checked))
@@ -438,6 +485,18 @@ function render() {
   }
   if (route.name === 'studio' && state.me?.account && !state.me.account.preview && !state.me.account.githubConnected) {
     go('/start')
+    return
+  }
+  if (route.name === 'callback') {
+    main.innerHTML = `<section class="panel"><p class="quiet">${esc(copy.loading)}</p></section>`
+    if (!state.callbackStarted && state.me?.publishableKey) {
+      state.callbackStarted = true
+      finishGoogleRedirect(state.me.publishableKey).catch((error) => {
+        state.callbackStarted = false
+        state.error = clerkMessage(error)
+        go('/sign-in')
+      })
+    }
     return
   }
   if (route.name === 'detail') {
@@ -496,6 +555,12 @@ async function ensureProjects(visibility) {
     if (editor) {
       const next = readEditor(editor)
       if (!editor.querySelector('input[name="repo"]')) next.repos = state.form?.repos || []
+      const scope = next.visibility || visibility
+      if (!state.projectsError && !state.needPrivate && !state.needGithub && (state.fillRepos || (state.filledFor !== scope && !next.repos.length))) {
+        next.repos = projectsInScope(scope).map((project) => project.fullName)
+        state.filledFor = scope
+      }
+      state.fillRepos = false
       state.form = next
     }
     render()
@@ -507,6 +572,9 @@ async function openDetail(id) {
   try {
     state.current = await api(`/api/links/${id}`)
     state.form = formFromLink(state.current)
+    state.filledFor = state.current.visibility || 'public'
+    state.fillRepos = false
+    state.projectsOpen = false
     if (state.projectsFor !== state.current.visibility) state.projectsFor = ''
     state.error = ''
   } catch (error) {
@@ -527,11 +595,7 @@ async function watch(id, token) {
     if (state.watchToken !== token) return
     try {
       const link = await api(`/api/links/${id}`)
-      if (link.status === 'preparing') {
-        const live = document.querySelector('[data-live]')
-        if (live) live.textContent = copy.detail.waiting
-        continue
-      }
+      if (link.status === 'preparing') continue
       state.current = link
       state.form = formFromLink(link)
       render()
@@ -622,6 +686,57 @@ document.addEventListener('click', async (event) => {
   }
   const action = event.target.closest('[data-action]')?.getAttribute('data-action')
   if (!action) return
+  if (action === 'toggle-projects') {
+    event.preventDefault()
+    const form = event.target.closest('form')
+    const scope = event.target.closest('[data-scope]')?.getAttribute('data-scope') === 'all' ? 'all' : 'public'
+    const radio = form?.querySelector(`input[name="visibility"][value="${scope}"]`)
+    if (radio && !radio.checked) {
+      radio.checked = true
+      state.projectsOpen = false
+      state.fillRepos = true
+      state.form = readEditor(form)
+      state.projectsFor = ''
+      ensureProjects(scope)
+      return
+    }
+    if (form) state.form = readEditor(form)
+    state.projectsOpen = !state.projectsOpen
+    render()
+    return
+  }
+  if (action === 'leave-forks') {
+    event.preventDefault()
+    const form = event.target.closest('form')
+    const scope = form?.querySelector('input[name="visibility"]:checked')?.value === 'all' ? 'all' : 'public'
+    const forks = new Set(projectsInScope(scope).filter((project) => project.fork).map((project) => project.fullName))
+    form?.querySelectorAll('input[name="repo"]').forEach((box) => {
+      if (box.dataset.fork === '1') box.checked = false
+    })
+    if (form) state.form = readEditor(form)
+    if (state.form) state.form.repos = (state.form.repos || []).filter((name) => !forks.has(name))
+    render()
+    return
+  }
+  if (action === 'google') {
+    const key = state.me?.publishableKey
+    if (!key) {
+      state.error = copy.auth.notReady
+      render()
+      return
+    }
+    state.busy = true
+    state.error = ''
+    render()
+    try {
+      await continueWithGoogle(key, safeNext() || '/')
+    } catch (error) {
+      state.busy = false
+      state.error = clerkMessage(error)
+      render()
+    }
+    return
+  }
   if (action === 'logout') {
     await api('/api/auth/logout', { method: 'POST', body: {} })
     state.me = { ...(state.me || {}), account: null }
@@ -702,6 +817,8 @@ document.addEventListener('change', (event) => {
   })
   if (event.target.name === 'visibility' && form?.id === 'editor') {
     state.form = readEditor(form)
+    state.fillRepos = true
+    state.projectsOpen = false
     state.projectsFor = ''
     ensureProjects(state.form.visibility)
   }
@@ -749,6 +866,16 @@ async function submitAuth(form) {
   }
 }
 
+function rememberLocal(body) {
+  if (!state.me?.account) return
+  state.me.account = {
+    ...state.me.account,
+    name: body.displayName || '',
+    headline: body.headline || '',
+    location: body.location || '',
+  }
+}
+
 document.addEventListener('submit', async (event) => {
   const form = event.target
   if (form.id === 'start-form') {
@@ -778,12 +905,14 @@ document.addEventListener('submit', async (event) => {
     const route = parse(location.pathname)
     if (route.name === 'studio') {
       const created = await api('/api/links', { method: 'POST', body })
+      rememberLocal(body)
       state.busy = false
       state.linksStamp = ''
       go(`/links/${created.id}`)
       return
     }
     const link = await api(`/api/links/${route.id}`, { method: 'PATCH', body })
+    rememberLocal(body)
     state.current = link
     state.busy = false
     state.notice = copy.notice.saved

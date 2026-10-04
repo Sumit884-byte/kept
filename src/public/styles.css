@@ -147,6 +147,29 @@ h1 {
 .panel:not(.split) > :not(h1),
 .list-page > :not(h1) { max-width: 40rem; }
 
+.wait-bar {
+  margin-top: 1.5rem;
+  height: 0.45rem;
+  max-width: 22rem;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(48, 36, 22, 0.1);
+}
+
+.wait-bar span {
+  display: block;
+  height: 100%;
+  width: 40%;
+  border-radius: inherit;
+  background: var(--green);
+  animation: wait-slide 1.4s ease-in-out infinite;
+}
+
+@keyframes wait-slide {
+  0% { transform: translateX(-120%); }
+  100% { transform: translateX(320%); }
+}
+
 .actions, .public-actions {
   display: flex;
   gap: 0.85rem;
@@ -201,6 +224,21 @@ h1 {
 }
 
 .auth-form { max-width: 28rem; }
+
+.button.google {
+  width: 100%;
+  background: var(--paper);
+  color: var(--ink);
+  box-shadow: inset 0 0 0 1px var(--line);
+  gap: 0.7rem;
+}
+
+.button.google svg { flex: none; }
+
+.auth-or {
+  margin: 1.15rem 0 0;
+  color: var(--muted);
+}
 
 #clerk-captcha { margin-top: 0.35rem; }
 
@@ -257,7 +295,7 @@ h1 {
 
 .paper-name { font-size: 2rem; line-height: 1.15; }
 
-.paper-contact, .paper-line, .paper-summary, .paper-skills, .paper-url { margin-top: 0.55rem; }
+.paper-contact, .paper-line, .paper-summary, .paper-skills, .paper-education, .paper-url { margin-top: 0.55rem; }
 
 .paper-contact { color: var(--muted); font-size: 0.92rem; line-height: 1.45; }
 
@@ -296,6 +334,26 @@ h1 {
 
 .choice-row, .projects { display: grid; gap: 0.85rem; margin-top: 1rem; }
 
+.choice-block { display: grid; gap: 0.75rem; }
+
+.choice-block .projects { margin-top: 0; }
+
+.choice-tools { display: flex; flex-wrap: wrap; gap: 0.35rem 1rem; align-items: center; }
+
+.text-button {
+  width: auto;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 0.18em;
+  cursor: pointer;
+}
+
 .choice, .project {
   display: grid;
   grid-template-columns: auto 1fr;
@@ -321,6 +379,15 @@ h1 {
   letter-spacing: 0.04em;
   text-transform: uppercase;
   color: var(--clay);
+}
+
+.star-count {
+  margin-left: 0.55rem;
+  color: var(--muted);
+  font-size: 0.85rem;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
 }
 
 .project small, .choice span { display: block; color: var(--muted); }
@@ -422,4 +489,5 @@ textarea { resize: vertical; min-height: 9rem; }
 @media (prefers-reduced-motion: reduce) {
   html { scroll-behavior: auto; }
   .hero .paper, .paper-back { transform: none; }
+  .wait-bar span { animation: none; width: 55%; transform: none; }
 }

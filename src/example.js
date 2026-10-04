@@ -12,6 +12,9 @@ export function exampleResume() {
       roleTarget: 'Product engineer',
       headline: 'Product engineer',
       instructions: '',
+      education: samplePerson.education,
+      profileText: samplePerson.profileReadme,
+      pulls: samplePerson.pulls,
     },
   })
 }

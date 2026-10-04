@@ -1,5 +1,6 @@
 import PDFDocument from 'pdfkit'
 import { copy } from './copy.js'
+import { starLabel } from './resume.js'
 
 export function pdfText(value) {
   return String(value ?? '')
@@ -61,13 +62,31 @@ function draw(doc, resume) {
     doc.text(pdfText(resume.summary), { width, lineGap: 2 })
     doc.moveDown(0.8)
   }
+  if (resume.education?.length) {
+    ensure(doc, 36)
+    doc.font('Times-Bold').fontSize(11).fillColor('#211e19').text(pdfText(copy.pdf.education), { width })
+    doc.moveDown(0.3)
+    for (const line of resume.education) {
+      ensure(doc, 24)
+      doc.font('Times-Roman').fontSize(11).text(pdfText(line), { width })
+      doc.moveDown(0.15)
+    }
+    doc.moveDown(0.45)
+  }
+  if (resume.skills?.length) {
+    ensure(doc, 36)
+    doc.font('Times-Bold').fontSize(11).fillColor('#211e19').text(pdfText(copy.pdf.skills), { width })
+    doc.moveDown(0.3)
+    doc.font('Times-Roman').fontSize(11).text(pdfText(resume.skills.join(', ')), { width })
+    doc.moveDown(0.7)
+  }
   if (resume.work?.length) {
     ensure(doc, 40)
     doc.font('Times-Bold').fontSize(11).fillColor('#211e19').text(pdfText(copy.pdf.selectedWork), { width, characterSpacing: 0.6 })
     doc.moveDown(0.45)
     for (const item of resume.work) {
       ensure(doc, 48)
-      doc.font('Times-Bold').fontSize(12).fillColor('#211e19').text(pdfText(item.title), { width })
+      doc.font('Times-Bold').fontSize(12).fillColor('#211e19').text(pdfText(item.stars > 0 ? `${item.title}  ${starLabel(item.stars)}` : item.title), { width })
       if (item.url) {
         doc.font('Times-Roman').fontSize(9).fillColor('#5c564c').text(pdfText(item.url), { width })
       }
@@ -81,11 +100,18 @@ function draw(doc, resume) {
       doc.moveDown(0.45)
     }
   }
-  if (resume.skills?.length) {
+  if (resume.contributions?.length) {
     ensure(doc, 36)
-    doc.font('Times-Bold').fontSize(11).fillColor('#211e19').text(pdfText(copy.pdf.skills), { width })
-    doc.moveDown(0.3)
-    doc.font('Times-Roman').fontSize(11).text(pdfText(resume.skills.join(', ')), { width })
+    doc.font('Times-Bold').fontSize(11).fillColor('#211e19').text(pdfText(copy.pdf.contributions), { width })
+    doc.moveDown(0.35)
+    for (const item of resume.contributions) {
+      ensure(doc, 36)
+      doc.font('Times-Bold').fontSize(12).fillColor('#211e19').text(pdfText(item.title || ''), { width })
+      if (item.url) doc.font('Times-Roman').fontSize(9).fillColor('#5c564c').text(pdfText(item.url), { width })
+      doc.moveDown(0.15)
+      doc.font('Times-Roman').fontSize(10.5).fillColor('#211e19').text(pdfText(`-  ${item.line}`), left + 8, doc.y, { width: width - 8 })
+      doc.moveDown(0.4)
+    }
   }
   if (resume.liveUrl) {
     doc.font('Times-Roman').fontSize(8).fillColor('#8a8378')

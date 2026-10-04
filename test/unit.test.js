@@ -5,13 +5,13 @@ import test from 'node:test'
 import { assessReadme, actionsFrom, humanAction, interpret } from '../src/analyze.js'
 import { applyHistory } from '../src/history.js'
 import { enhancementSentence, soften } from '../src/phrases.js'
-import { composeResume } from '../src/resume.js'
-import { lineIsGrounded, mergeTailored, projectsForRemote } from '../src/tailor.js'
+import { composeResume, readableResume, uniqueLines } from '../src/resume.js'
+import { lineIsGrounded, mergeTailored, namesFromDescriptions, projectsForRemote, publicNamesForRole, resumeWithSelection, roleChoiceRequest } from '../src/tailor.js'
 import { GEMMA_MODEL, cleanConclusion, gemmaMessages } from '../src/public/gemmaText.js'
 import { samplePrivate } from '../src/public/samplePrivate.js'
 import { findSample } from '../src/sample.js'
 import { exampleResume } from '../src/example.js'
-import { verifyGithubSignature, parseNext } from '../src/github.js'
+import { verifyGithubSignature, parseNext, profileName, nameFromProfileReadme } from '../src/github.js'
 import { encrypt, decrypt } from '../src/cryptoBox.js'
 import { pdfText, renderPdf } from '../src/pdf.js'
 import { renderPublicPage } from '../src/publicPage.js'
@@ -20,6 +20,13 @@ import { updatedLabel } from '../src/when.js'
 test('a badge-only writeup is treated as thin', () => {
   const result = assessReadme('# Wow\n\n![badge](https://img.shields.io/badge/build-passing)\n')
   assert.equal(result.thin, true)
+})
+
+test('html markup is left out of the writeup', () => {
+  const result = assessReadme('<p align="center"><img src="mark.svg" alt="Star the repo"></p><h1>Arka</h1><p>Your terminal understands plain English and routes the work to the right skill.</p>')
+  assert.equal(result.thin, false)
+  assert.match(result.prose, /plain English/)
+  assert.doesNotMatch(result.prose, /<|>|align=|src=|Star the repo/)
 })
 
 test('a real writeup keeps its prose and stated numbers', () => {
@@ -80,6 +87,14 @@ test('a brief can drop a project and change the voice', () => {
   assert.match(resume.summary, /Ledger and Parcel/)
   assert.doesNotMatch(resume.summary, /^Product engineer/)
   assert.ok(resume.work.some((item) => item.lines.join(' ').includes('12') && item.lines.join(' ').includes('40')))
+  assert.equal(resume.work.find((item) => item.title === 'Ledger').stars, 40)
+  assert.ok(resume.work.every((item) => !/latest \d+ updates|three months/i.test(item.lines.join(' '))))
+  assert.ok(resume.skills.includes('TypeScript'))
+  assert.ok(resume.skills.includes('JavaScript'))
+  assert.ok(resume.skills.indexOf('TypeScript') < resume.skills.indexOf('JavaScript') || resume.skills.includes('TypeScript'))
+  assert.ok(!resume.skills.includes('Express'))
+  assert.ok(resume.education.some((line) => /Lisbon University/.test(line)))
+  assert.ok(resume.contributions.some((item) => /product/i.test(item.line)))
   const hidden = composeResume({
     person: { name: 'Mira Chen', email: 'mira@example.com' },
     projects: [interpret(findSample('northwind/parcel').gather).project],
@@ -87,6 +102,59 @@ test('a brief can drop a project and change the voice', () => {
   })
   assert.equal(hidden.work.length, 0)
   assert.match(hidden.summary, /leave out/)
+})
+
+test('a project does not repeat the same wording', () => {
+  const lines = uniqueLines([
+    'Exam-guided RAG pipeline for textbook study at scale. Uses exam papers as ground truth.',
+    'Exam-guided RAG pipeline for textbook study at scale. Uses exam papers as ground truth to retrieve more.',
+    'Arka Your terminal, upgraded. Plain English routes work to a language model.',
+    'The latest 8 updates, with about 2,500 lines added.',
+  ], 'Arka')
+  assert.equal(lines.length, 3)
+  assert.doesNotMatch(lines[1], /^Arka\b/)
+  assert.match(lines[2], /2,500/)
+})
+
+test('broken readme tags are not shown', () => {
+  const cleaned = readableResume({
+    summary: 'Recent projects include arka.',
+    work: [{
+      title: 'arka',
+      lines: [
+        'Natural-language AI agent for your terminal.',
+        '<p align="center" <img src="mark.svg" alt="Star the repo" / </p <h1 align="center" Arka</h1 <p <strong Your terminal, upgraded.</strong',
+      ],
+    }],
+  })
+  const extra = cleaned.work[0].lines[1] || ''
+  assert.doesNotMatch(extra, /<|align=|src=|alt=|\bh1\b|\bimg\b/)
+  assert.match(cleaned.work[0].lines[0], /terminal/)
+})
+
+test('a role selects projects from their descriptions', () => {
+  const projects = [
+    { name: 'Ledger', description: 'Invoices for shops', private: false },
+    { name: 'Parcel', description: 'Draft reminders', private: false },
+    { name: 'Hidden', description: 'Internal notes', private: true },
+    { name: 'Atlas', description: '', conclusion: 'A terminal that routes plain English to local skills.', private: false },
+  ]
+  const resume = {
+    headline: '',
+    summary: 'old',
+    skills: [],
+    work: projects.map((project) => ({ title: project.name, lines: [project.description || project.conclusion] })),
+  }
+  assert.deepEqual(namesFromDescriptions(projects, 'invoices'), ['Ledger'])
+  assert.deepEqual(namesFromDescriptions(projects, 'terminal'), ['Atlas'])
+  assert.deepEqual(publicNamesForRole(projects, ['Parcel', 'Nope', 'Hidden']), ['Parcel'])
+  const next = resumeWithSelection(resume, projects, ['Ledger'])
+  assert.deepEqual(next.work.map((item) => item.title), ['Ledger', 'Hidden'])
+  assert.equal(next.summary, '')
+  const request = roleChoiceRequest(projects, 'invoices')
+  assert.equal(request.store, false)
+  assert.match(request.messages[1].content, /Invoices for shops/)
+  assert.match(request.messages[1].content, /terminal that routes/)
 })
 
 test('a remote writer does not receive private projects', () => {
@@ -139,6 +207,12 @@ test('github signatures and next links', () => {
     parseNext('<https://api.github.com/user/repos?page=2>; rel="next", <https://api.github.com/user/repos?page=4>; rel="last"'),
     '/user/repos?page=2',
   )
+})
+
+test('a username is not used as a name', () => {
+  assert.equal(profileName('ada', 'Ada'), '')
+  assert.equal(nameFromProfileReadme('# Ada Lovelace\n\nBuilds tools.', 'ada'), 'Ada Lovelace')
+  assert.equal(nameFromProfileReadme('# README', 'ada'), '')
 })
 
 test('saved access round-trips', () => {

@@ -10,6 +10,7 @@ import { GithubError, verifyGithubSignature } from './github.js'
 import { applyLocalReadings, refreshLink } from './jobs.js'
 import { exampleResume } from './example.js'
 import { renderPdf, fileName } from './pdf.js'
+import { readableResume, starLabel, withSkills, withStars } from './resume.js'
 import { renderPublicPage } from './publicPage.js'
 import { cleanConclusion } from './public/gemmaText.js'
 import { listSampleProjects, samplePerson } from './sample.js'
@@ -148,10 +149,11 @@ async function requireAccount(req) {
 
 function presentAccount(account) {
   return {
-    name: account.name || account.login,
+    name: github.profileName(account.name, account.login),
     login: account.login,
     email: account.email || '',
     location: account.location || '',
+    headline: account.headline,
     bio: account.bio || '',
     canReadPrivate: account.can_read_private,
     preview: account.preview,
@@ -160,9 +162,26 @@ function presentAccount(account) {
   }
 }
 
+async function dressResume(link, projects) {
+  const account = link.account_id ? await db.getAccount(link.account_id) : null
+  return withSkills(withStars(readableResume(link.resume), projects), projects, {
+    roleTarget: link.role_target || '',
+    instructions: link.instructions || '',
+    profileText: account?.profile_readme || '',
+    education: link.education || '',
+  })
+}
+
+async function shownResume(link) {
+  if (!link?.resume) return null
+  const projects = link.id ? await db.loadContext(link) : []
+  return dressResume(link, projects)
+}
+
 async function presentLink(link) {
   const latest = link.id ? await db.latestReason(link.id) : null
   const trendNotes = link.id && link.resume ? await db.trendNotes(link.id) : []
+  const projects = link.id ? await db.loadContext(link) : []
   return {
     id: link.id,
     slug: link.slug,
@@ -171,6 +190,7 @@ async function presentLink(link) {
     headline: link.headline || '',
     email: link.email || '',
     location: link.location || '',
+    education: link.education || '',
     roleTarget: link.role_target || '',
     instructions: link.instructions || '',
     selectedRepos: link.selected_repos || [],
@@ -179,7 +199,7 @@ async function presentLink(link) {
     refreshedLabel: link.last_refreshed_at ? updatedLabel(link.last_refreshed_at) : '',
     reason: latest?.reason || '',
     trendNotes,
-    localReads: (await db.loadContext(link))
+    localReads: projects
       .filter((project) => project.needsLocal || (project.reader === 'gemma' && !cleanConclusion(project.conclusion, project.name)))
       .map((project) => ({
         fullName: project.fullName,
@@ -189,7 +209,7 @@ async function presentLink(link) {
       })),
     pdfUrl: `${config.publicUrl}/r/${link.slug}.pdf`,
     pageUrl: `${config.publicUrl}/r/${link.slug}`,
-    resume: link.resume || null,
+    resume: link.resume ? await dressResume(link, projects) : null,
   }
 }
 
@@ -218,7 +238,6 @@ function cleanFields(body) {
   const visibility = body.visibility === 'all' ? 'all' : 'public'
   const repos = Array.isArray(body.repos) ? body.repos.map((repo) => String(repo)) : []
   if (!repos.length) throw new HttpError(400, copy.errors.chooseProjects)
-  if (repos.length > 8) throw new HttpError(400, copy.errors.tooMany)
   if (repos.some((repo) => !REPO.test(repo))) throw new HttpError(400, copy.errors.notOnList)
   return {
     visibility,
@@ -226,6 +245,7 @@ function cleanFields(body) {
     headline: String(body.headline || '').trim().slice(0, 180),
     email,
     location: String(body.location || '').trim().slice(0, 120),
+    education: String(body.education || '').trim().slice(0, 1200),
     roleTarget: String(body.roleTarget || '').trim().slice(0, 160),
     instructions: instructions.trim(),
     repos: [...new Set(repos)],
@@ -255,8 +275,9 @@ function mapGithubError(error) {
 }
 
 async function sendPdf(res, link, status = 200) {
-  const resume = link?.resume
-    ? { ...link.resume, liveUrl: `${config.publicUrl}/r/${link.slug}.pdf` }
+  const prepared = link?.resume ? await shownResume(link) : null
+  const resume = prepared
+    ? { ...prepared, liveUrl: `${config.publicUrl}/r/${link.slug}.pdf` }
     : {
       name: link?.display_name || copy.name,
       summary: link ? copy.public.preparing : copy.public.missing,
@@ -340,7 +361,30 @@ export function buildApp() {
   })
 
   app.get('/api/me', wrap(async (req, res) => {
-    const account = await accountFrom(req)
+    let account = await accountFrom(req)
+    if (account && hasGithub(account) && !github.profileName(account.name, account.login)) {
+      try {
+        const fresh = await github.profile(decrypt(account.token_ciphertext))
+        const real = github.profileName(fresh.name, account.login)
+        if (real) {
+          await db.applyProfileName(account.id, account.login, real)
+          account = await db.getAccount(account.id)
+        }
+      } catch (error) {
+        console.error('profile name failed', error.message)
+      }
+    }
+    if (account && account.headline == null) {
+      const latest = await db.latestPerson(account.id)
+      if (latest) {
+        await db.rememberPerson(account.id, {
+          name: github.profileName(account.name, account.login) || github.profileName(latest.display_name, account.login) || '',
+          headline: latest.headline || '',
+          location: latest.location || account.location || '',
+        })
+        account = await db.getAccount(account.id)
+      }
+    }
     res.json({
       account: account ? presentAccount(account) : null,
       practice: !config.isProd,
@@ -367,13 +411,13 @@ export function buildApp() {
     const scope = visibility === 'all' ? 'read:user user:email repo' : 'read:user user:email'
     const url = new URL('https://github.com/login/oauth/authorize')
     url.searchParams.set('client_id', config.githubClientId)
-    url.searchParams.set('redirect_uri', `${config.publicUrl}/api/auth/callback`)
+    url.searchParams.set('redirect_uri', `${config.publicUrl}/github/auth/callback`)
     url.searchParams.set('scope', scope)
     url.searchParams.set('state', nonce)
     return res.redirect(url.toString())
   })
 
-  app.get('/api/auth/callback', wrap(async (req, res) => {
+  app.get('/github/auth/callback', wrap(async (req, res) => {
     if (req.query.error) return res.redirect('/start?notice=denied')
     const payload = readPayload(readCookies(req).kept_oauth)
     if (!payload || payload.nonce !== req.query.state || payload.exp < Date.now() || !req.query.code) {
@@ -508,6 +552,11 @@ export function buildApp() {
     }
     if (fields.repos.some((repo) => !known.has(repo))) throw new HttpError(400, copy.errors.notOnList)
     const link = await db.createLink(account.id, fields)
+    await db.rememberPerson(account.id, {
+      name: fields.displayName,
+      headline: fields.headline,
+      location: fields.location,
+    })
     res.status(201).json(await presentLink(link))
     refreshLink(link.id, { mode: 'full', reason: copy.reasons.first }).catch((error) => {
       console.error('create refresh failed', error.message)
@@ -543,6 +592,11 @@ export function buildApp() {
       status: 'preparing',
     })
     if (reposChanged) await db.forgetUnselected(link.id, fields.repos)
+    await db.rememberPerson(account.id, {
+      name: fields.displayName,
+      headline: fields.headline,
+      location: fields.location,
+    })
     res.json(await presentLink(link))
     const mode = reposChanged ? 'full' : 'reword'
     const reason = reposChanged ? copy.reasons.updated : copy.reasons.reword
@@ -618,7 +672,7 @@ export function buildApp() {
     if (asPdf) return sendPdf(res, link)
     res.setHeader('Cache-Control', 'no-store')
     res.setHeader('X-Robots-Tag', 'noindex, nofollow')
-    return res.type('html').send(renderPublicPage(link))
+    return res.type('html').send(renderPublicPage({ ...link, resume: await shownResume(link) }))
   }))
 
   app.get('/copy.js', (_req, res) => {
@@ -700,6 +754,7 @@ function existingToBody(link) {
     headline: link.headline,
     email: link.email,
     location: link.location,
+    education: link.education || '',
     roleTarget: link.role_target,
     instructions: link.instructions,
     repos: link.selected_repos,

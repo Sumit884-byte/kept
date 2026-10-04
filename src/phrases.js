@@ -47,7 +47,6 @@ export function attentionSentence(numbers = {}) {
   if (numbers.forkDelta > 0 && numbers.earlierForks != null) {
     return `Forks grew from ${numbers.earlierForks} to ${numbers.forks}.`
   }
-  if ((numbers.stars || 0) >= 25) return `${numbers.stars} people have starred it.`
   return ''
 }
 

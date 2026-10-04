@@ -101,7 +101,7 @@ export async function exchangeCode(code) {
       client_id: config.githubClientId,
       client_secret: config.githubClientSecret,
       code,
-      redirect_uri: `${config.publicUrl}/api/auth/callback`,
+      redirect_uri: `${config.publicUrl}/github/auth/callback`,
     }),
   })
   const data = await response.json()
@@ -111,15 +111,38 @@ export async function exchangeCode(code) {
   return data
 }
 
+export function nameFromProfileReadme(markdown, login) {
+  const heading = String(markdown || '').match(/^#\s+(.+)$/m)?.[1] || ''
+  const clean = heading.replace(/[*_`]/g, '').replace(/\s+/g, ' ').trim()
+  if (!clean || clean.length > 60) return ''
+  const words = clean.split(' ').filter(Boolean)
+  if (words.length < 2 || words.length > 4) return ''
+  if (!words.every((word) => /^[A-Za-z][A-Za-z.'’-]*$/.test(word))) return ''
+  if (login && clean.toLowerCase().replace(/[^a-z0-9]/g, '') === String(login).toLowerCase().replace(/[^a-z0-9]/g, '')) return ''
+  return clean
+}
+
+export function profileName(name, login) {
+  const clean = String(name || '').trim()
+  if (!clean) return ''
+  if (login && clean.toLowerCase() === String(login).toLowerCase()) return ''
+  return clean
+}
+
 export async function profile(token) {
   const user = await gh(token, '/user')
   const emails = await optional(gh(token, '/user/emails'), { data: [] })
   const list = Array.isArray(emails.data) ? emails.data : []
   const primary = list.find((email) => email.primary && email.verified) || list.find((email) => email.verified)
+  let name = profileName(user.data.name, user.data.login)
+  if (!name && user.data.login) {
+    const readme = await profileReadme(token, user.data.login)
+    name = nameFromProfileReadme(readme, user.data.login)
+  }
   return {
     githubId: String(user.data.id),
     login: user.data.login,
-    name: user.data.name || user.data.login,
+    name,
     email: primary?.email || user.data.email || '',
     avatarUrl: user.data.avatar_url || '',
     bio: user.data.bio || '',
@@ -128,24 +151,48 @@ export async function profile(token) {
   }
 }
 
+export async function profileReadme(token, login) {
+  if (!login) return ''
+  const response = await optional(gh(token, `/repos/${encodeURIComponent(login)}/${encodeURIComponent(login)}/readme`, { raw: true }), { data: '' })
+  return String(response.data || '').slice(0, 20000)
+}
+
+export async function listPulls(token, login) {
+  if (!login) return []
+  const query = encodeURIComponent(`author:${login} type:pr is:public`)
+  const response = await quiet(gh(token, `/search/issues?q=${query}&sort=updated&per_page=20`), { data: { items: [] } })
+  return (response.data?.items || []).slice(0, 20).map((item) => ({
+    title: String(item.title || '').replace(/\s+/g, ' ').trim(),
+    where: String(item.repository_url || '').split('/').slice(-2).join('/'),
+    url: String(item.html_url || '').replace(/^https?:\/\//, ''),
+    text: String(item.body || '').replace(/\s+/g, ' ').trim().slice(0, 280),
+  })).filter((item) => item.title)
+}
+
 export async function listRepos(token, visibility) {
-  const scope = visibility === 'all' ? 'all' : 'public'
-  let path = `/user/repos?per_page=100&sort=updated&visibility=${scope}&affiliation=owner,collaborator,organization_member`
+  const type = visibility === 'all' ? 'all' : 'public'
   const repos = []
-  for (let page = 0; page < 3 && path; page += 1) {
-    const response = await gh(token, path)
-    repos.push(...(response.data || []))
-    path = parseNext(response.link)
+  const seen = new Set()
+  for (let page = 1; page <= 50; page += 1) {
+    const response = await gh(token, `/user/repos?per_page=100&page=${page}&sort=full_name&direction=asc&type=${type}`)
+    const batch = Array.isArray(response.data) ? response.data : []
+    if (!batch.length) break
+    for (const repo of batch) {
+      if (seen.has(repo.id)) continue
+      seen.add(repo.id)
+      repos.push(repo)
+    }
+    if (batch.length < 100) break
   }
   return repos
-    .filter((repo) => !repo.archived && !repo.fork && !repo.disabled)
+    .filter((repo) => !repo.disabled)
     .sort((a, b) => new Date(b.pushed_at) - new Date(a.pushed_at))
-    .slice(0, 40)
     .map((repo) => ({
       fullName: repo.full_name,
       name: repo.name,
       description: repo.description || '',
       private: Boolean(repo.private),
+      fork: Boolean(repo.fork),
       language: repo.language || '',
       pushedAt: repo.pushed_at,
       stars: repo.stargazers_count || 0,
@@ -251,8 +298,9 @@ export async function gatherRepo(token, fullName, etag) {
   const releases = (releaseRes.data || [])
     .filter((release) => !release.draft && release.published_at && new Date(release.published_at).getTime() >= cutoff)
     .map((release) => ({ name: release.tag_name || release.name || '', publishedAt: release.published_at }))
-  const languages = await optional(gh(token, `/repos/${fullName}/languages`), { data: {} })
-  const language = Object.entries(languages.data || {}).sort((a, b) => b[1] - a[1])[0]?.[0] || repo.language || ''
+  const languageRes = await optional(gh(token, `/repos/${fullName}/languages`), { data: {} })
+  const ranked = Object.entries(languageRes.data || {}).sort((a, b) => b[1] - a[1]).map(([name]) => name)
+  const language = ranked[0] || repo.language || ''
   return {
     notModified: false,
     etag: repoRes.etag,
@@ -263,6 +311,7 @@ export async function gatherRepo(token, fullName, etag) {
       description: repo.description || '',
       private: Boolean(repo.private),
       language,
+      languages: ranked.slice(0, 5),
       url: repo.html_url,
       stars: repo.stargazers_count || 0,
       forks: repo.forks_count || 0,

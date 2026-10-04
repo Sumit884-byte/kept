@@ -1,10 +1,29 @@
+import { skillsFromEvidence } from './skills.js'
+
 const PLACEHOLDER = /^(todo|tbd|fixme|description|add a description)\b/i
+
+export function plainWriting(value) {
+  return String(value || '')
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<br\s*\/?>/gi, ' ')
+    .replace(/<\/?[a-zA-Z][a-zA-Z0-9]*/g, ' ')
+    .replace(/<[^>\n]{0,300}>/g, ' ')
+    .replace(/\b(?:align|src|alt|width|height|href|class|style)\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, ' ')
+    .replace(/[<>]/g, ' ')
+    .replace(/(^|\s)\/+(?=\s|$)/g, ' ')
+    .replace(/\b(?:src|alt|href|align|width|height|class|style)\s*…?\s*$/i, '')
+    .replace(/[^\S\n]+/g, ' ')
+    .trim()
+}
+
+const MARKUP_NOISE = /badge|shields\.io|npm version|license|star the repo|build status/i
 
 export function assessReadme(markdown) {
   if (!markdown || !String(markdown).trim()) {
     return { score: 0, thin: true, prose: '', stated: [] }
   }
-  const text = String(markdown)
+  const text = plainWriting(markdown)
     .replace(/```[\s\S]*?```/g, ' ')
     .replace(/<!--[\s\S]*?-->/g, ' ')
     .replace(/^#{1,6}\s+.*$/gm, ' ')
@@ -19,11 +38,12 @@ export function assessReadme(markdown) {
     .split(/(?<=[.!?])\s+/)
     .map((sentence) => sentence.trim())
     .filter((sentence) => sentence.split(' ').filter(Boolean).length >= 6)
+    .filter((sentence) => !MARKUP_NOISE.test(sentence))
   const stated = text
     .split(/(?<=[.!?])\s+/)
     .map((sentence) => sentence.trim())
     .filter((sentence) => /\d/.test(sentence) && sentence.length < 140 && sentence.split(' ').length >= 3)
-    .filter((sentence) => !/badge|shields\.io|npm version|license/i.test(sentence))
+    .filter((sentence) => !MARKUP_NOISE.test(sentence))
     .slice(0, 2)
   const thin = sentences.length === 0 || PLACEHOLDER.test(text) || words.length < 12
   const prose = (thin ? [] : sentences.slice(0, 2)).join(' ')
@@ -101,14 +121,31 @@ export function manifestOf(files) {
 const CONVENTIONAL = /^(feat|fix|chore|docs|refactor|test|style|perf)(\([^)]+\))?!?:\s*/i
 const BORING = /^(merge|wip|bump|chore|dependabot|update readme|updates|update|fix|fixes|cleanup|clean up)\b/i
 
+function cleanCommit(message) {
+  const clean = String(message || '').split('\n')[0].replace(CONVENTIONAL, '').trim().replace(/\.+$/, '')
+  if (clean.length < 13 || BORING.test(clean)) return ''
+  return clean.charAt(0).toUpperCase() + clean.slice(1)
+}
+
 export function recentWork(commits) {
   const ordered = [...(commits || [])].sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0))
   for (const commit of ordered) {
-    const clean = String(commit.message || '').split('\n')[0].replace(CONVENTIONAL, '').trim().replace(/\.+$/, '')
-    if (clean.length < 13 || BORING.test(clean)) continue
-    return clean.charAt(0).toUpperCase() + clean.slice(1)
+    const clean = cleanCommit(commit.message)
+    if (clean) return clean
   }
   return ''
+}
+
+export function notableWork(commits) {
+  const ordered = [...(commits || [])].sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0))
+  const lines = []
+  for (const commit of ordered) {
+    const clean = cleanCommit(commit.message)
+    if (!clean || lines.includes(clean)) continue
+    lines.push(clean)
+    if (lines.length === 3) break
+  }
+  return lines
 }
 
 function trimSentence(text, max) {
@@ -177,6 +214,14 @@ export function interpret(gathered) {
     files: needsLocal ? [] : files,
     commits,
   })
+  const manifest = needsLocal ? { deps: [] } : manifestOf(files)
+  const languages = Array.isArray(repo.languages) ? repo.languages : []
+  const skills = skillsFromEvidence({
+    language: repo.language || '',
+    languages,
+    deps: manifest.deps,
+    text: [repo.description, written.conclusion, ...(written.highlights || [])].filter(Boolean).join('\n'),
+  })
   const window = gathered.window
   const commitAdditions = commits.reduce((sum, commit) => sum + (Number(commit.additions) || 0), 0)
   const commitDeletions = commits.reduce((sum, commit) => sum + (Number(commit.deletions) || 0), 0)
@@ -201,9 +246,12 @@ export function interpret(gathered) {
     url: repo.url || '',
     private: Boolean(repo.private),
     language: repo.language || '',
+    languages,
+    skills,
     description: repo.description || '',
     conclusion: written.conclusion,
     highlights: written.highlights,
+    contributions: notableWork(commits),
     readmeWasThin: written.readmeWasThin,
     numbers,
   }
@@ -226,6 +274,9 @@ export function interpret(gathered) {
       conclusion: written.conclusion,
       detail: {
         highlights: written.highlights,
+        contributions: notableWork(commits),
+        skills,
+        languages,
         stated: readme.stated,
         private: project.private,
         needsLocal,

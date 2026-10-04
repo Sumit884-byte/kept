@@ -1,5 +1,6 @@
 import { copy } from './copy.js'
 import { escapeHtml } from './escape.js'
+import { starLabel } from './resume.js'
 
 function page({ title, body, statusNote }) {
   return `<!DOCTYPE html>
@@ -42,7 +43,7 @@ export function renderPublicPage(link) {
   const contact = (resume.contact || []).map((item) => `<span>${escapeHtml(item)}</span>`).join('')
   const work = (resume.work || []).map((item) => `
     <section class="paper-role">
-      <h3>${escapeHtml(item.title)}</h3>
+      <h3>${escapeHtml(item.title)}${item.stars > 0 ? `<span class="star-count">${escapeHtml(starLabel(item.stars))}</span>` : ''}</h3>
       ${item.url ? `<p class="paper-url">${escapeHtml(item.url)}</p>` : ''}
       <ul>${(item.lines || []).map((line) => `<li>${escapeHtml(line)}</li>`).join('')}</ul>
     </section>`).join('')
@@ -55,8 +56,10 @@ export function renderPublicPage(link) {
         ${contact ? `<p class="paper-contact">${contact}</p>` : ''}
         ${resume.headline ? `<p class="paper-line">${escapeHtml(resume.headline)}</p>` : ''}
         ${resume.summary ? `<p class="paper-summary">${escapeHtml(resume.summary)}</p>` : ''}
-        ${work ? `<h2>${escapeHtml(copy.pdf.selectedWork)}</h2>${work}` : ''}
+        ${(resume.education || []).length ? `<h2>${escapeHtml(copy.pdf.education)}</h2><ul class="paper-education">${resume.education.map((line) => `<li>${escapeHtml(line)}</li>`).join('')}</ul>` : ''}
         ${resume.skills?.length ? `<h2>${escapeHtml(copy.pdf.skills)}</h2><p class="paper-skills">${escapeHtml(resume.skills.join(', '))}</p>` : ''}
+        ${work ? `<h2>${escapeHtml(copy.pdf.selectedWork)}</h2>${work}` : ''}
+        ${(resume.contributions || []).length ? `<h2>${escapeHtml(copy.pdf.contributions)}</h2>${(resume.contributions || []).map((item) => `<section class="paper-role"><h3>${escapeHtml(item.title || '')}</h3>${item.url ? `<p class="paper-url">${escapeHtml(item.url)}</p>` : ''}<ul><li>${escapeHtml(item.line)}</li></ul></section>`).join('')}` : ''}
       </article>
       <p class="public-actions"><a class="button" href="/r/${escapeHtml(link.slug)}.pdf">${escapeHtml(copy.public.open)}</a></p>`,
   })

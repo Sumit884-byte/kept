@@ -51,6 +51,7 @@ export function loadClerk(publishableKey) {
 
 export function clerkMessage(error) {
   const code = error?.errors?.[0]?.code || ''
+  if (/oauth|strategy_not_allowed|provider/.test(code)) return copy.auth.googleFailed
   if (code === 'form_identifier_not_found' || code === 'form_password_incorrect') return copy.auth.mismatch
   if (code === 'form_identifier_exists') return copy.auth.exists
   if (
@@ -62,6 +63,20 @@ export function clerkMessage(error) {
   if (code === 'form_code_incorrect' || code === 'verification_failed') return copy.auth.badCode
   if (code === 'too_many_requests') return copy.errors.slowDown
   return copy.errors.generic
+}
+
+export async function continueWithGoogle(publishableKey, next) {
+  const clerk = await loadClerk(publishableKey)
+  await clerk.client.signIn.authenticateWithRedirect({
+    strategy: 'oauth_google',
+    redirectUrl: '/sso-callback',
+    redirectUrlComplete: next || '/',
+  })
+}
+
+export async function finishGoogleRedirect(publishableKey) {
+  const clerk = await loadClerk(publishableKey)
+  await clerk.handleRedirectCallback()
 }
 
 export async function logIn(publishableKey, email, password) {

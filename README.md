@@ -7,7 +7,7 @@ The pages speak in plain language. This file is the technical map.
 ## What happens when GitHub changes
 
 1. The person connects GitHub with OAuth. Public projects need `read:user` and `user:email`. Including private projects also requests the `repo` scope, which is what the GitHub API requires in order to read private repositories and to install a hook.
-2. They pick up to eight repositories and write a brief for that version of the resume. Each link stores its own brief, so one person can keep a design version and an engineering version.
+2. They pick repositories, including every public one from a single check, and write a brief for that version of the resume. Each link stores its own brief and role, so one person can keep a design version and an engineering version. When a role is set, a writing model only chooses which public projects to show, using each project's description. It does not rewrite those descriptions.
 3. Kept reads those repositories through the official GitHub REST API (`https://api.github.com`, `X-GitHub-Api-Version: 2022-11-28`): repository metadata, README, languages, the file tree, releases, and the last 90 days of commit activity (`/stats/code_frequency` and `/stats/commit_activity`). If those stat endpoints are not ready, it falls back to the commit list. Private file contents are not part of this request.
 4. Public projects with a thin README are read on the server: manifests and a handful of source files, then a conclusion from routes, a command name, and recent change messages. That source is not stored and is not sent to a writing model.
 5. Private projects are different. The server never downloads their files. When the README does not explain the project, the browser fetches those files from GitHub and describes them with Gemma only (`onnx-community/gemma-3-270m-it-ONNX`, the q4f16 build, through Transformers.js on WebGPU, or the same Gemma build on WASM when WebGPU is missing). A sentence is kept only when it names the project and mentions something that actually appears in those files. Anything else is dropped, and the resume keeps the counts without a guessed description. Only that short conclusion is posted back. A remote writing model is not given private projects. Practice mode uses the bundled sample and the same in-browser Gemma path.
@@ -45,7 +45,7 @@ Without a writing model, Kept still uses it:
 - "Never mention …" and "Leave out …" remove matching projects, lines, and skills.
 - The role and the brief reorder projects toward the words they use.
 
-With `LLM_API_KEY` set, that same brief is sent as the writing instruction for public projects, along with the conclusions and numbers already stored in Tiger Data. Raw source is not included. Private projects are left out of that request; their bullets stay as Gemma wrote them on the computer. Any bullet that introduces a number or percentage that was not in those facts is dropped.
+With `LLM_API_KEY` set, the role is sent with each public project's name and description. The model returns the names that fit that role. It does not rewrite descriptions, and private projects are left out of that request. If the model is unavailable, projects whose name or description contains a word from the role are kept instead.
 
 ## Run it locally
 
@@ -61,7 +61,7 @@ Open `http://localhost:3000`. `http://localhost:3000/sample` opens one sample re
 
 ## Sign-in
 
-Log in and sign in go through Clerk, but the pages are Kept's own forms: email, password, and a short email code for a new account. The prebuilt Clerk card is not mounted. Set `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` and `NEXT_PUBLIC_CLERK_SECRET_KEY` (or `CLERK_PUBLISHABLE_KEY` and `CLERK_SECRET_KEY`). In the Clerk dashboard, allow email and password plus email-code verification. Add the site origin (locally `http://localhost:3000`) so the browser session is accepted.
+Log in and sign in go through Clerk, but the pages are Kept's own forms. Google is the way to use a Gmail account. Email and password are a separate Kept password, confirmed with a short email code for a new account. The prebuilt Clerk card is not mounted. Set `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` and `NEXT_PUBLIC_CLERK_SECRET_KEY` (or `CLERK_PUBLISHABLE_KEY` and `CLERK_SECRET_KEY`). In the Clerk dashboard, allow email and password plus email-code verification. Add the site origin (locally `http://localhost:3000`) so the browser session is accepted.
 
 The browser loads Clerk's script from the frontend host encoded in the publishable key, and may load a quiet check from `challenges.cloudflare.com`. Those hosts are in the page's content security policy. The secret key stays on the server. `@clerk/express` reads the session cookie and creates a Kept account the first time that person is seen. GitHub is still a separate step, used only to read projects. Until it is connected, the account cannot list projects. Signing out revokes the Clerk session and clears the local session cookie.
 
@@ -70,7 +70,7 @@ If GitHub OAuth is not filled in, a local (non-production) server offers **Try i
 To connect a real GitHub account, create an OAuth app:
 
 1. GitHub → Settings → Developer settings → OAuth Apps → New OAuth App.
-2. Callback URL: `http://localhost:3000/api/auth/callback` (or `${PUBLIC_URL}/api/auth/callback`).
+2. Callback URL: `http://localhost:3000/github/auth/callback` (or `${PUBLIC_URL}/github/auth/callback`).
 3. Put the client id and secret in `.env`.
 
 `APP_SECRET` encrypts the GitHub access token at rest (AES-256-GCM). Changing it signs everyone out and makes saved tokens unreadable, so people need to connect GitHub again.
@@ -85,7 +85,7 @@ In the Render dashboard, set:
 | --- | --- |
 | `TIGER_DATABASE_URL` | Tiger Cloud service URL. Prefer the pooled connection string. `sslmode=require` is expected; the app turns on TLS for any host that is not localhost. |
 | `PUBLIC_URL` | The public `https` origin of this service, with no trailing slash. OAuth and hooks are built from it. |
-| `GITHUB_CLIENT_ID` | OAuth app client id. Add `https://<your-service>/api/auth/callback` as a callback on the GitHub app. |
+| `GITHUB_CLIENT_ID` | OAuth app client id. Add `https://<your-service>/github/auth/callback` as a callback on the GitHub app. |
 | `GITHUB_CLIENT_SECRET` | OAuth app secret. |
 | `APP_SECRET` | Generated by the blueprint. |
 | `WEBHOOK_SECRET` | Generated by the blueprint. Used as the hook secret. Changing it means hooks must be created again, which happens the next time a private-access link is refreshed. |
@@ -100,7 +100,7 @@ Health check: `GET /health` runs `SELECT 1` against Tiger Data.
 
 ## Limits
 
-- At most eight projects per link, and the forty most recently updated non-fork, non-archived repositories are offered.
+- Every repository the account can see is offered, public and private, including paused projects and copies. One check selects all of the public ones. The role then chooses which of those public projects appear, using the whole write-up. That request turns storage off and is not written down here. A star count is shown only when it is above zero.
 - Numbers in the PDF come from GitHub's counts or from the project's own README. The writer is not allowed to add a metric that was not in that evidence.
 - Private projects are included only when the person chooses "Public and private projects." Their files are read in the browser by Gemma and are not stored. The PDF may show the project name and the short conclusion. A private project's URL is left off so the PDF does not point at a locked page. The page asks GitHub for those files with the person's own access, held in memory for that reading only.
 - Anyone with the link can open the PDF. Shared pages send `noindex` and `robots.txt` disallows `/r/`.

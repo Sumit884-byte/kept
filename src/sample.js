@@ -47,6 +47,7 @@ Used by 120 shops.
 `,
       files: [],
       commits: [
+        { message: 'Shape the product around invoices for small shops', date: daysAgo(4), additions: 80, deletions: 10 },
         { message: 'Send reminders before invoices are late', date: daysAgo(10), additions: 200, deletions: 40 },
       ],
       releases: [{ name: 'v1.4', publishedAt: daysAgo(12) }],
@@ -109,6 +110,16 @@ export const samplePerson = {
   login: 'mira',
   bio: 'Product engineer who likes calm tools.',
   headline: 'Product engineer',
+  profileReadme: 'Product engineer using TypeScript and JavaScript for tools that shops can trust.',
+  education: 'Lisbon University, product engineering',
+  pulls: [
+    {
+      title: 'Add a product checklist for invoice reminders',
+      where: 'shops/ledger',
+      url: 'github.com/shops/ledger/pull/12',
+      text: 'A product checklist so small shops notice unpaid invoices.',
+    },
+  ],
 }
 
 export function findSample(fullName) {
