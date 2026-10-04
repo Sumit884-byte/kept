@@ -3,6 +3,7 @@ services:
     name: kept-model
     runtime: docker
     dockerfilePath: ./model/Dockerfile
+    dockerContext: ./model
     plan: 2c-8g
     healthCheckPath: /health
     disk:
