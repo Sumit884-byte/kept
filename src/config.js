@@ -2,6 +2,13 @@ function cleanUrl(value) {
   return String(value || '').trim().replace(/\/$/, '')
 }
 
+export function modelBase(raw) {
+  const clean = cleanUrl(raw)
+  if (!clean) return ''
+  if (/^https?:\/\//i.test(clean)) return clean
+  return `http://${clean}/v1`
+}
+
 function adopt(name, alias) {
   if (!process.env[name] && process.env[alias]) process.env[name] = process.env[alias]
   return process.env[name] || ''
@@ -39,10 +46,10 @@ export const config = {
     return process.env.LLM_API_KEY || ''
   },
   get llmBase() {
-    return cleanUrl(process.env.LLM_BASE_URL || 'https://api.openai.com/v1')
+    return modelBase(process.env.LLM_BASE_URL || '')
   },
   get llmModel() {
-    return process.env.LLM_MODEL || 'gpt-4o-mini'
+    return process.env.LLM_MODEL || 'gemma-3-4b-it'
   },
   get pollMs() {
     return Number(process.env.POLL_INTERVAL_MS || 10 * 60 * 1000)

@@ -15,6 +15,7 @@ import { verifyGithubSignature, parseNext, profileName, nameFromProfileReadme } 
 import { encrypt, decrypt } from '../src/cryptoBox.js'
 import { pdfText, renderPdf } from '../src/pdf.js'
 import { renderPublicPage } from '../src/publicPage.js'
+import { modelBase } from '../src/config.js'
 import { updatedLabel } from '../src/when.js'
 
 test('a badge-only writeup is treated as thin', () => {
@@ -155,6 +156,9 @@ test('a role selects projects from their descriptions', () => {
   assert.equal(request.store, false)
   assert.match(request.messages[1].content, /Invoices for shops/)
   assert.match(request.messages[1].content, /terminal that routes/)
+  assert.equal(modelBase(''), '')
+  assert.equal(modelBase('kept-model:10000'), 'http://kept-model:10000/v1')
+  assert.equal(modelBase('https://example.test/v1'), 'https://example.test/v1')
 })
 
 test('a remote writer does not receive private projects', () => {

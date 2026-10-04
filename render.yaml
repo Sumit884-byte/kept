@@ -1,4 +1,19 @@
 services:
+  - type: pserv
+    name: kept-model
+    runtime: docker
+    dockerfilePath: ./model/Dockerfile
+    plan: 2c-8g
+    healthCheckPath: /health
+    disk:
+      name: model
+      mountPath: /models
+      sizeGB: 5
+    envVars:
+      - key: PORT
+        value: "10000"
+      - key: THREADS
+        value: "2"
   - type: web
     name: kept
     runtime: node
@@ -27,11 +42,12 @@ services:
         sync: false
       - key: PUBLIC_URL
         sync: false
-      - key: LLM_API_KEY
-        sync: false
       - key: LLM_BASE_URL
-        sync: false
+        fromService:
+          name: kept-model
+          type: pserv
+          property: hostport
       - key: LLM_MODEL
-        sync: false
+        value: gemma-3-4b-it
       - key: POLL_INTERVAL_MS
         value: "600000"

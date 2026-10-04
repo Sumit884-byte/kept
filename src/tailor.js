@@ -67,9 +67,10 @@ function aboutText(project) {
 }
 
 function slimProject(project) {
+  const about = aboutText(project)
   return {
     name: project.name,
-    about: aboutText(project),
+    about: about.length > 500 ? `${about.slice(0, 500).trim()}…` : about,
     language: project.language || '',
   }
 }
@@ -145,18 +146,20 @@ export function roleChoiceRequest(projects, role) {
 }
 
 async function namesFromModel(shareable, role, fetchImpl) {
+  const headers = { 'Content-Type': 'application/json' }
+  if (config.llmKey) headers.Authorization = `Bearer ${config.llmKey}`
   const response = await fetchImpl(`${config.llmBase}/chat/completions`, {
     method: 'POST',
-    headers: {
-      Authorization: `Bearer ${config.llmKey}`,
-      'Content-Type': 'application/json',
-    },
+    headers,
     body: JSON.stringify(roleChoiceRequest(shareable, role)),
-    signal: AbortSignal.timeout(25000),
+    signal: AbortSignal.timeout(90000),
   })
   if (!response.ok) return []
   const payload = await response.json()
-  const text = payload?.choices?.[0]?.message?.content || ''
+  const text = String(payload?.choices?.[0]?.message?.content || '')
+    .replace(/^```(?:json)?/i, '')
+    .replace(/```$/i, '')
+    .trim()
   const model = JSON.parse(text)
   return publicNamesForRole(shareable, model?.projects)
 }
@@ -166,7 +169,7 @@ export async function tailorResume(resume, projects, prefs, fetchImpl = fetch) {
   if (!role) return finishSections(applyBrief(resume, prefs), projects, prefs)
   const shareable = projectsForRemote(projects)
   let names = []
-  if (config.llmKey && shareable.length) {
+  if (config.llmBase && shareable.length) {
     try {
       names = await namesFromModel(shareable, role, fetchImpl)
     } catch {
