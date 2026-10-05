@@ -1086,15 +1086,15 @@ async function settlePrivate(link) {
   state.privateNote = copy.detail.readingPrivate
   render()
   try {
-    let token = ''
+    let tokens = {}
     if (!state.me?.account?.preview) {
-      const reader = await api('/api/github/reader')
-      token = reader.token || ''
+      const reader = await api(`/api/github/reader?link=${encodeURIComponent(link.id)}`)
+      tokens = reader.tokens || {}
     }
     const { readPrivateLocally } = await import('./privateRead.js')
     const readings = await readPrivateLocally(link.localReads, {
       preview: Boolean(state.me?.account?.preview),
-      token,
+      tokens,
     })
     if (!readings.length) throw new Error('empty')
     const updated = await api(`/api/links/${link.id}/local`, { method: 'POST', body: { readings } })
@@ -1103,9 +1103,11 @@ async function settlePrivate(link) {
       state.form = formFromLink(updated)
     }
     state.privateNote = ''
-  } catch {
+  } catch (error) {
     state.privateNote = ''
-    if (state.current?.id === link.id) state.error = copy.detail.privateMissed
+    if (state.current?.id === link.id) {
+      state.error = error?.status === 409 ? copy.errors.needAppInstall : copy.detail.privateMissed
+    }
   } finally {
     state.privateBusy = false
     render()
