@@ -357,11 +357,21 @@ test('github signatures and next links', () => {
   const secret = 'hook-secret'
   const header = `sha256=${createHmac('sha256', secret).update(body).digest('hex')}`
   assert.equal(verifyGithubSignature(body, header, secret), true)
+  assert.equal(verifyGithubSignature(body, header.toUpperCase().replace('SHA256=', 'sha256='), secret), true)
+  assert.equal(verifyGithubSignature(body, [header], secret), false)
   assert.equal(verifyGithubSignature(body, header, 'other'), false)
   assert.equal(
     parseNext('<https://api.github.com/user/repos?page=2>; rel="next", <https://api.github.com/user/repos?page=4>; rel="last"'),
     '/user/repos?page=2',
   )
+})
+
+test('hidden paths are not the app shell', async () => {
+  const { isHiddenPath } = await import('../src/server.js')
+  assert.equal(isHiddenPath('/.env'), true)
+  assert.equal(isHiddenPath('/.git/config'), true)
+  assert.equal(isHiddenPath('/.well-known/acme-challenge/token'), false)
+  assert.equal(isHiddenPath('/links'), false)
 })
 
 test('a username is not used as a name', () => {

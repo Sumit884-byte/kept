@@ -10,9 +10,9 @@ export class GithubError extends Error {
 }
 
 export function verifyGithubSignature(rawBody, header, secret) {
-  if (!header || !secret || !rawBody) return false
+  if (typeof header !== 'string' || !header || !secret || !rawBody) return false
   const expected = `sha256=${crypto.createHmac('sha256', secret).update(rawBody).digest('hex')}`
-  const left = Buffer.from(String(header))
+  const left = Buffer.from(header.trim().toLowerCase())
   const right = Buffer.from(expected)
   if (left.length !== right.length) return false
   return crypto.timingSafeEqual(left, right)
