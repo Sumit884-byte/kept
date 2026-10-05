@@ -29,5 +29,8 @@ export function introForPdf(resume) {
   if (s === h || s.startsWith(`${h} `) || summary.toLowerCase().startsWith(`${headline.replace(/\.$/, '').toLowerCase()}.`)) {
     return { headline: '', summary }
   }
+  if (/^recent projects include\b/i.test(summary)) {
+    return { headline: '', summary }
+  }
   return { headline, summary }
 }

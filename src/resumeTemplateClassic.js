@@ -27,8 +27,10 @@ const styles = StyleSheet.create({
     fontSize: 10.25,
     color: C.body,
     lineHeight: 1.45,
+    paddingTop: 36,
   },
   headerBand: {
+    marginTop: -36,
     backgroundColor: C.headerBg,
     borderTopWidth: 4,
     borderTopColor: C.accent,
@@ -171,7 +173,7 @@ function Section({ title, first, children }) {
     { style: first ? styles.sectionFirst : styles.section },
     React.createElement(
       View,
-      { style: styles.sectionHead },
+      { style: styles.sectionHead, minPresenceAhead: 48 },
       React.createElement(View, { style: styles.sectionMark }),
       React.createElement(Text, { style: styles.sectionTitle }, pdfText(String(title || '').toUpperCase())),
     ),
@@ -196,7 +198,7 @@ function Bullets({ lines }) {
 function Project({ item, first }) {
   return React.createElement(
     View,
-    { style: first ? styles.projectFirst : styles.project },
+    { style: first ? styles.projectFirst : styles.project, wrap: false },
     React.createElement(
       Text,
       { style: styles.projectTitleLine },
