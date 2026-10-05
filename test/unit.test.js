@@ -471,3 +471,10 @@ test('a hook signature must be one lowercase-insensitive string header', () => {
   assert.equal(verifyGithubSignature(body, sig.toUpperCase().replace('SHA256=', 'sha256='), 'hook-secret'), true)
   assert.equal(verifyGithubSignature(body, [sig], 'hook-secret'), false)
 })
+
+test('a line that opens with the project name keeps its subject', () => {
+  assert.deepEqual(uniqueLines(['Parcel is a web service.'], 'Parcel'), ['Parcel is a web service.'])
+  assert.deepEqual(uniqueLines(['Arka: Your terminal, upgraded.'], 'Arka'), ['Your terminal, upgraded.'])
+  assert.match(readableLine('Parcel is a web service. It handles drafts, send, and reminders.'), /drafts/)
+  assert.equal(readableLine('Supports formats e.g. CSV and JSON for exports.'), 'Supports formats e.g. CSV and JSON for exports.')
+})

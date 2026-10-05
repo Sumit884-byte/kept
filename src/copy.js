@@ -184,6 +184,7 @@ export const copy = {
     notOnList: 'Choose projects from the list.',
     slowDown: 'Too many tries. Wait a moment and try again.',
     needPrivate: 'GitHub has not allowed private projects yet.',
+    needAppInstall: 'Install the Kept GitHub App on this account so private projects can be read.',
     notReady: 'GitHub connection is not ready on this site yet.',
     denied: 'GitHub access was not granted.',
     missingLink: 'That link could not be found.',

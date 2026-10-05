@@ -5,7 +5,6 @@ import {
   namesFromDescriptions,
   namesFromTerms,
   publicNamesForRole,
-  roleTerms,
   termsFromBreakdown,
 } from './rolePick.js'
 import { applyBrief, finishSections } from './resume.js'

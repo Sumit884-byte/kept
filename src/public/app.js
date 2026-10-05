@@ -234,11 +234,6 @@ function safeNext() {
   return next
 }
 
-function authPath(path) {
-  const next = safeNext()
-  return next ? `${path}?next=${encodeURIComponent(next)}` : path
-}
-
 async function refreshMe() {
   try {
     state.me = await apiOnce('/api/me')
@@ -906,7 +901,6 @@ function render() {
     }
   }
   document.title = copy.name
-  const editor = document.querySelector('#editor')
   maybeLoadProjects()
   updateCount()
   if (!state.editing) schedulePaperLayout()
@@ -924,7 +918,6 @@ async function ensureProjects(visibility) {
     if (editor) {
       const next = readEditor(editor)
       const scope = next.visibility || visibility
-      const ready = true
       const role = next.roleTarget || ''
       if (!state.reposTouched && (state.fillRepos || !next.repos.length)) {
         next.repos = mergeRoleRepos(scope, role, [], { fillEmpty: true })
@@ -1012,11 +1005,14 @@ async function ensureProjects(visibility) {
     state.projectsLoading = false
     state.projectsRetrying = false
     render()
+  } catch (error) {
+    console.error('projects load failed', error)
   } finally {
-    if (seq !== projectsLoadSeq || (!state.projectsLoading && !state.projectsRetrying)) return
-    state.projectsLoading = false
-    state.projectsRetrying = false
-    render()
+    if (seq === projectsLoadSeq && (state.projectsLoading || state.projectsRetrying)) {
+      state.projectsLoading = false
+      state.projectsRetrying = false
+      render()
+    }
   }
 }
 
@@ -1090,15 +1086,15 @@ async function settlePrivate(link) {
   state.privateNote = copy.detail.readingPrivate
   render()
   try {
-    let token = ''
+    let tokens = {}
     if (!state.me?.account?.preview) {
-      const reader = await api('/api/github/reader')
-      token = reader.token || ''
+      const reader = await api(`/api/github/reader?link=${encodeURIComponent(link.id)}`)
+      tokens = reader.tokens || {}
     }
     const { readPrivateLocally } = await import('./privateRead.js')
     const readings = await readPrivateLocally(link.localReads, {
       preview: Boolean(state.me?.account?.preview),
-      token,
+      tokens,
     })
     if (!readings.length) throw new Error('empty')
     const updated = await api(`/api/links/${link.id}/local`, { method: 'POST', body: { readings } })
@@ -1107,9 +1103,11 @@ async function settlePrivate(link) {
       state.form = formFromLink(updated)
     }
     state.privateNote = ''
-  } catch {
+  } catch (error) {
     state.privateNote = ''
-    if (state.current?.id === link.id) state.error = copy.detail.privateMissed
+    if (state.current?.id === link.id) {
+      state.error = error?.status === 409 ? copy.errors.needAppInstall : copy.detail.privateMissed
+    }
   } finally {
     state.privateBusy = false
     render()
