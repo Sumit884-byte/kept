@@ -464,3 +464,20 @@ test('the site copy stays in everyday language', () => {
   const hits = strings.filter((value) => banned.test(value))
   assert.deepEqual(hits, [])
 })
+
+test('rate limit buckets are swept and proxies are only trusted in production', async () => {
+  const { allow, bucketCount } = await import('../src/limit.js')
+  for (let i = 0; i < 10_001; i += 1) allow(`sweep:${i}`, 1, -1)
+  assert.ok(bucketCount() < 10_001)
+  const { config } = await import('../src/config.js')
+  const saved = { env: process.env.NODE_ENV, trust: process.env.TRUST_PROXY }
+  process.env.TRUST_PROXY = ''
+  process.env.NODE_ENV = 'development'
+  assert.equal(config.trustProxy, false)
+  process.env.NODE_ENV = 'production'
+  assert.equal(config.trustProxy, 1)
+  process.env.TRUST_PROXY = '2'
+  assert.equal(config.trustProxy, 2)
+  process.env.NODE_ENV = saved.env
+  process.env.TRUST_PROXY = saved.trust ?? ''
+})

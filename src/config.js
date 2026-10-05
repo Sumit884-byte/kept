@@ -54,6 +54,13 @@ export const config = {
   get pollMs() {
     return Number(process.env.POLL_INTERVAL_MS || 10 * 60 * 1000)
   },
+  get trustProxy() {
+    const raw = String(process.env.TRUST_PROXY || '').trim()
+    if (!raw) return this.isProd ? 1 : false
+    if (/^\d+$/.test(raw)) return Number(raw)
+    if (raw === 'true' || raw === 'false') return raw === 'true'
+    return raw
+  },
   get isProd() {
     return process.env.NODE_ENV === 'production'
   },

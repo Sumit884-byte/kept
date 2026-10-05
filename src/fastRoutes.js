@@ -125,6 +125,20 @@ export function previewProjectPayload(scope = 'all') {
   return { projects, counts: projectCounts(projects) }
 }
 
+const GUEST_SECONDS = 60 * 60 * 24
+const PRUNE_EVERY_MS = 10 * 60 * 1000
+let lastPrune = 0
+
+async function pruneGuestsNow() {
+  if (Date.now() - lastPrune < PRUNE_EVERY_MS) return
+  lastPrune = Date.now()
+  try {
+    await db.pruneGuests()
+  } catch (error) {
+    console.error('guest cleanup failed', error)
+  }
+}
+
 export async function createGuestSession(res) {
   const account = await db.upsertAccount({
     githubId: `preview:${crypto.randomUUID()}`,
@@ -139,8 +153,9 @@ export async function createGuestSession(res) {
     canReadPrivate: true,
     preview: true,
   })
-  const sessionId = await db.createSession(account.id)
-  writeSessionCookie(res, sessionId, 60 * 60 * 24)
+  const sessionId = await db.createSession(account.id, GUEST_SECONDS)
+  writeSessionCookie(res, sessionId, GUEST_SECONDS)
+  await pruneGuestsNow()
   return { account: present(account), ...previewProjectPayload('all') }
 }
 
