@@ -34,11 +34,16 @@ export async function readPrivateLocally(reads, { preview, token, conclude = con
       ? (samplePrivate[read.fullName] || []).filter((file) => safePath(file.path))
       : await githubFiles(token, read)
     if (!files.length) continue
-    const conclusion = await conclude({
-      name: read.name,
-      description: read.description || '',
-      files,
-    })
+    let conclusion = ''
+    try {
+      conclusion = await conclude({
+        name: read.name,
+        description: read.description || '',
+        files,
+      })
+    } catch {
+      break
+    }
     if (conclusion) readings.push({ fullName: read.fullName, conclusion })
   }
   return readings

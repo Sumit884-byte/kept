@@ -1,6 +1,7 @@
 import { GEMMA_MODEL, cleanConclusion, gemmaMessages, generatedText } from './gemmaText.js'
 
 let cached
+let unavailable = false
 
 export function gemmaPlans({ gpu = false, f16 = false, memory = 0, cores = 2, isolated = false } = {}) {
   const threads = isolated ? Math.max(1, Math.min(4, Number(cores) || 1)) : 1
@@ -60,18 +61,22 @@ export function loadGemma() {
 
 export async function concludeWithGemma(bundle, generator) {
   if (generator) return sentence(generator, bundle, 1800)
+  if (unavailable) throw new Error('unavailable')
   const plans = gemmaPlans(await detectMachine())
-  let last = new Error('empty')
+  let last = new Error('unavailable')
+  let ran = false
   for (const plan of plans) {
     try {
       const engine = await openEngine(plan)
+      ran = true
       const text = await sentence(engine, bundle, plan.budget)
       if (text) return text
-      cached = null
     } catch (error) {
       last = error
       cached = null
     }
   }
+  if (ran) return ''
+  unavailable = true
   throw last
 }
