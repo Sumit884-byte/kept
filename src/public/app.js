@@ -296,7 +296,6 @@ function go(path) {
       applyPreviewProjects(vis)
       state.projectsLoading = false
       state.projectsRetrying = false
-      if (state.projects.length) state.projectsOpen = true
     } else {
       state.projectsFor = ''
       state.projectsLoadedFor = ''
@@ -823,7 +822,6 @@ function syncGuestProjects() {
     applyPreviewProjects(scope)
     state.projectsLoading = false
     state.projectsRetrying = false
-    if (state.projects.length) state.projectsOpen = true
   }
 }
 
@@ -879,7 +877,6 @@ function render() {
     const scope = state.form.visibility === 'all' ? 'all' : 'public'
     if (!state.form.repos.length && !state.needGithub && !state.needPrivate && !state.projectsError && state.projects.length) {
       state.form.repos = mergeRoleRepos(scope, state.form.roleTarget, [], { fillEmpty: true })
-      if (state.form.repos.length) state.projectsOpen = true
     }
   }
   const views = {
@@ -934,7 +931,6 @@ async function ensureProjects(visibility) {
         state.filledFor = scope
       }
       state.form = next
-      if (projectsInScope(scope).length) state.projectsOpen = true
     }
     render()
     return
@@ -997,7 +993,6 @@ async function ensureProjects(visibility) {
       if (!editor.querySelector('input[name="repo"]')) next.repos = state.form?.repos || []
       const scope = next.visibility || visibility
       const ready = !state.projectsError && !state.needPrivate && !state.needGithub
-      const inScope = projectsInScope(scope).map((project) => project.fullName)
       const prevNames = state.projectNamesSeen || new Set()
       const role = next.roleTarget || ''
       if (state.needPrivate) {
@@ -1013,7 +1008,6 @@ async function ensureProjects(visibility) {
       state.projectNamesSeen = new Set(state.projects.map((project) => project.fullName))
       state.fillRepos = false
       state.form = next
-      if (ready && inScope.length) state.projectsOpen = true
     }
     state.projectsLoading = false
     state.projectsRetrying = false
@@ -1267,7 +1261,6 @@ async function boot() {
       applyPreviewProjects(vis)
       state.projectsLoading = false
       state.projectsRetrying = false
-      if (state.projects.length) state.projectsOpen = true
     }
   } catch (error) {
     state.error = error.message
