@@ -474,3 +474,10 @@ test('the same resume renders its PDF once', async () => {
   const other = await renderPdf({ ...resume, summary: 'Different.' })
   assert.notEqual(first, other)
 })
+
+test('a line that opens with the project name keeps its subject', () => {
+  assert.deepEqual(uniqueLines(['Parcel is a web service.'], 'Parcel'), ['Parcel is a web service.'])
+  assert.deepEqual(uniqueLines(['Arka: Your terminal, upgraded.'], 'Arka'), ['Your terminal, upgraded.'])
+  assert.match(readableLine('Parcel is a web service. It handles drafts, send, and reminders.'), /drafts/)
+  assert.equal(readableLine('Supports formats e.g. CSV and JSON for exports.'), 'Supports formats e.g. CSV and JSON for exports.')
+})
