@@ -464,3 +464,13 @@ test('the site copy stays in everyday language', () => {
   const hits = strings.filter((value) => banned.test(value))
   assert.deepEqual(hits, [])
 })
+
+test('the same resume renders its PDF once', async () => {
+  const { renderPdf } = await import('../src/pdf.js')
+  const resume = { name: 'Cache Check', summary: 'Same bytes twice.', contact: [], work: [], skills: [] }
+  const first = await renderPdf(resume)
+  const again = await renderPdf({ ...resume })
+  assert.equal(first, again)
+  const other = await renderPdf({ ...resume, summary: 'Different.' })
+  assert.notEqual(first, other)
+})
