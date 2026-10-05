@@ -31,6 +31,7 @@ function createMeasureHost(article, width) {
   const measurePaper = document.createElement('article')
   measurePaper.className = article.className
   measurePaper.style.width = `${width}px`
+  measurePaper.style.minHeight = '0'
   measureHost.appendChild(measurePaper)
   document.body.appendChild(measureHost)
   return { measureHost, measurePaper }
