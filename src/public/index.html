@@ -5,17 +5,42 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Kept</title>
   <meta name="description" content="One resume link that stays current when your work does.">
+  <script>
+    (function () {
+      var u = new URL(location.href)
+      if (!u.searchParams.has('__clerk_handshake') && !u.searchParams.has('__clerk_db_jwt')) return
+      u.searchParams.delete('__clerk_handshake')
+      u.searchParams.delete('__clerk_db_jwt')
+      var q = u.searchParams.toString()
+      history.replaceState({}, '', u.pathname + (q ? '?' + q : '') + u.hash)
+    })()
+  </script>
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,560;9..144,640&family=Public+Sans:ital,wght@0,400;0,500;0,600;1,400&display=swap" rel="stylesheet">
+  <link rel="preload" href="/styles.css" as="style">
+  <link rel="preload" href="/api/me" as="fetch" crossorigin="use-credentials">
   <link rel="stylesheet" href="/styles.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,560;9..144,640&amp;family=Public+Sans:ital,wght@0,400;0,560;1,400&amp;display=swap" media="print" onload="this.media='all'">
+  <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,560;9..144,640&amp;family=Public+Sans:ital,wght@0,400;0,560;1,400&amp;display=swap"></noscript>
 </head>
 <body>
   <a class="skip" href="#main">Skip to content</a>
-  <header id="top" class="top"></header>
+  <header id="top" class="top">
+    <a class="mark" href="/"><img class="mark-icon" src="/favicon.svg" alt="">Kept</a>
+  </header>
   <main id="main">
-    <p class="quiet">One moment…</p>
+    <section class="hero">
+      <div>
+        <p class="eyebrow">A resume that keeps up</p>
+        <h1>Send one link. It still tells the truth later.</h1>
+        <p class="lede">Connect GitHub, choose the projects, and say what this version should emphasize. When that work changes, the PDF changes. The link stays the same.</p>
+        <div class="actions">
+          <a class="button" href="/start">Make a link</a>
+          <button class="button secondary" type="button" data-action="guest">Try as guest</button>
+          <a class="secondary button" href="/sample">See an example</a>
+        </div>
+      </div>
+    </section>
   </main>
   <script type="module" src="/app.js"></script>
   <noscript><p class="quiet noscript">Kept needs a modern browser.</p></noscript>

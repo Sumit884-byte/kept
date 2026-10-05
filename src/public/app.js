@@ -1,6 +1,14 @@
 import { copy } from '/copy.js'
-import { readPrivateLocally } from './privateRead.js'
-import { beginSignIn, clerkMessage, confirmSignIn, continueWithGoogle, finishGoogleRedirect, loadClerk, logIn } from './auth.js'
+import { renderPaperHtml } from './paperHtml.js'
+import { fullNamesForRole } from '/rolePick.js'
+
+const authModule = () => import('./auth.js')
+let paperPagesModule = null
+
+function schedulePaperLayout() {
+  paperPagesModule ||= import('./paperPages.js')
+  paperPagesModule.then((mod) => mod.schedulePaperLayout()).catch(() => {})
+}
 
 const state = {
   me: null,
@@ -8,9 +16,13 @@ const state = {
   form: null,
   projects: [],
   projectsFor: '',
+  projectsLoadedFor: '',
+  previewProjectPool: null,
   projectsLoading: false,
+  projectsLoadingSince: 0,
   needPrivate: false,
   projectsError: '',
+  projectsRetrying: false,
   links: [],
   current: null,
   error: '',
@@ -27,6 +39,10 @@ const state = {
   projectsOpen: false,
   fillRepos: false,
   filledFor: '',
+  reposTouched: false,
+  deselectedRepos: new Set(),
+  projectNamesSeen: null,
+  editing: false,
 }
 
 function esc(value) {
@@ -57,23 +73,155 @@ function parse(pathname) {
   return { name: 'missing' }
 }
 
-async function api(path, options = {}) {
+function apiDelay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+function apiRetryable(error, method, options) {
+  if (options.noRetry) return false
+  const status = Number(error.status) || 0
+  if ([401, 403, 404, 409, 422].includes(status)) return false
+  if (status === 429 || status >= 500 || status === 0) return true
+  if (error.message === copy.errors.generic) return true
+  if (method === 'GET' && status === 405) return true
+  return false
+}
+
+async function apiOnce(path, options = {}) {
+  const method = options.method || 'GET'
+  const timeoutMs = options.timeoutMs ?? (method === 'GET' ? 28000 : 45000)
+  const signal = options.signal
+    || (typeof AbortSignal?.timeout === 'function' ? AbortSignal.timeout(timeoutMs) : undefined)
   const response = await fetch(path, {
-    method: options.method || 'GET',
+    method,
     credentials: 'same-origin',
+    signal,
     headers: {
       Accept: 'application/json',
       ...(options.body ? { 'Content-Type': 'application/json' } : {}),
     },
     body: options.body ? JSON.stringify(options.body) : undefined,
   })
-  const data = await response.json().catch(() => ({}))
-  if (!response.ok) {
-    const error = new Error(data.message || copy.errors.generic)
+  const text = await response.text()
+  let data = null
+  try {
+    data = text ? JSON.parse(text) : {}
+  } catch {
+    data = null
+  }
+  if (!response.ok || data == null || typeof data !== 'object') {
+    const error = new Error(data?.message || copy.errors.generic)
     error.status = response.status
     throw error
   }
   return data
+}
+
+let projectsLoadSeq = 0
+
+function currentProjectScope() {
+  const editor = document.querySelector('#editor')
+  if (editor) {
+    return editor.querySelector('input[name="visibility"]:checked')?.value === 'all' ? 'all' : 'public'
+  }
+  if (new URLSearchParams(location.search).get('visibility') === 'all') return 'all'
+  if (state.current?.visibility === 'all') return 'all'
+  return state.form?.visibility === 'all' ? 'all' : 'public'
+}
+
+function projectsLoadStuck() {
+  return state.projectsLoading && Date.now() - (state.projectsLoadingSince || 0) > 32000
+}
+
+function guestSampleMode() {
+  const account = state.me?.account
+  if (!account) return false
+  if (account.preview) return true
+  return Boolean(state.me?.guest && !account.githubConnected)
+}
+
+function rememberPreviewProjects(meOrGuest) {
+  if (!meOrGuest?.projects?.length) return
+  state.previewProjectPool = meOrGuest.projects
+  if (meOrGuest.counts) state.counts = meOrGuest.counts
+}
+
+function applyPreviewProjects(visibility) {
+  if (!guestSampleMode() || !state.previewProjectPool?.length) return false
+  const projects = state.previewProjectPool.filter((project) => visibility === 'all' || !project.private)
+  state.projects = projects
+  state.counts = {
+    public: projects.filter((p) => !p.private).length,
+    private: projects.filter((p) => p.private).length,
+    forks: projects.filter((p) => p.fork).length,
+    all: projects.length,
+  }
+  state.projectsLoadedFor = visibility
+  state.projectsFor = visibility
+  state.needPrivate = false
+  state.needGithub = false
+  state.projectsError = ''
+  return true
+}
+
+function needsProjectsLoad(scope) {
+  if (!state.me?.account) return false
+  if (guestSampleMode() && state.previewProjectPool?.length) return state.projectsLoadedFor !== scope
+  if (projectsLoadStuck()) return true
+  if (state.projectsLoading) return false
+  if (state.projectsLoadedFor !== scope) return true
+  return false
+}
+
+function maybeLoadProjects() {
+  const route = parse(location.pathname)
+  if (route.name !== 'studio' && route.name !== 'detail') return
+  const scope = currentProjectScope()
+  if (guestSampleMode() && state.previewProjectPool?.length && state.projectsLoadedFor === scope) return
+  if (!needsProjectsLoad(scope)) return
+  if (projectsLoadStuck()) state.projectsLoading = false
+  if (guestSampleMode() && state.previewProjectPool?.length && applyPreviewProjects(scope)) {
+    state.projectsLoading = false
+    state.projectsRetrying = false
+    render()
+    return
+  }
+  ensureProjects(scope)
+}
+
+async function api(path, options = {}) {
+  const method = options.method || 'GET'
+  const max = options.noRetry ? 1 : (method === 'GET' ? 5 : 4)
+  let lastError
+  for (let attempt = 0; attempt < max; attempt += 1) {
+    if (attempt > 0) {
+      if (!options.quiet) {
+        state.notice = copy.errors.stillWorking
+        render()
+      }
+      await apiDelay(Math.min(4000, 350 * (2 ** (attempt - 1))))
+    }
+    try {
+      const data = await apiOnce(path, options)
+      if (attempt > 0 && !options.quiet && state.notice === copy.errors.stillWorking) {
+        state.notice = ''
+        render()
+      }
+      return data
+    } catch (error) {
+      lastError = error
+      if (!apiRetryable(error, method, options) || attempt === max - 1) {
+        if (error.message === copy.errors.generic) {
+          error.message = copy.errors.gaveUp
+        }
+        if (state.notice === copy.errors.stillWorking) {
+          state.notice = ''
+        }
+        throw error
+      }
+    }
+  }
+  throw lastError
 }
 
 function safeNext() {
@@ -87,6 +235,22 @@ function authPath(path) {
   return next ? `${path}?next=${encodeURIComponent(next)}` : path
 }
 
+async function refreshMe() {
+  try {
+    state.me = await apiOnce('/api/me')
+    rememberPreviewProjects(state.me)
+    return state.me
+  } catch {
+    return state.me
+  }
+}
+
+function signInAgainPath() {
+  const route = parse(location.pathname)
+  const next = route.name === 'detail' ? `/links/${route.id}` : route.name === 'studio' ? '/studio' : location.pathname
+  return `/sign-in?next=${encodeURIComponent(next)}`
+}
+
 function makePath() {
   const account = state.me?.account
   if (account?.preview || account?.githubConnected) return '/studio'
@@ -95,51 +259,72 @@ function makePath() {
   return '/start'
 }
 
+function stripClerkNoiseFromUrl() {
+  const url = new URL(location.href)
+  if (!url.searchParams.has('__clerk_handshake') && !url.searchParams.has('__clerk_db_jwt')) return
+  url.searchParams.delete('__clerk_handshake')
+  url.searchParams.delete('__clerk_db_jwt')
+  const qs = url.searchParams.toString()
+  history.replaceState({}, '', url.pathname + (qs ? `?${qs}` : '') + url.hash)
+}
+
 function go(path) {
   history.pushState({}, '', path)
   state.error = ''
   state.notice = path === '/links' ? state.notice : ''
   state.confirmRemove = false
+  state.editing = false
   state.authStep = 'details'
+  if (path === '/studio' || path === '/links' || path.startsWith('/links/')) {
+    import('/rolePick.js').catch(() => {})
+  }
   if (path === '/studio') {
     state.form = blankForm(state.me?.account)
     state.projectsOpen = false
-    state.projectsFor = ''
+    state.filledFor = ''
+    state.reposTouched = false
+    state.fillRepos = true
     state.current = null
+    state.editing = false
+    if (guestSampleMode()) {
+      rememberPreviewProjects(state.me)
+      const vis = state.form.visibility === 'all' ? 'all' : 'public'
+      applyPreviewProjects(vis)
+      state.projectsLoading = false
+      state.projectsRetrying = false
+      if (state.projects.length) state.projectsOpen = true
+    } else {
+      state.projectsFor = ''
+      state.projectsLoadedFor = ''
+    }
   }
   render()
 }
 
 function paper(resume) {
-  if (!resume) return ''
-  const contact = (resume.contact || []).map((item) => `<span>${esc(item)}</span>`).join('')
-  const work = (resume.work || []).map((item) => `
-    <section>
-      <h3>${esc(item.title)}${item.stars > 0 ? `<span class="star-count">${esc(starCount(item.stars))}</span>` : ''}</h3>
-      ${item.url ? `<p class="paper-url">${esc(item.url)}</p>` : ''}
-      <ul>${(item.lines || []).map((line) => `<li>${esc(line)}</li>`).join('')}</ul>
-    </section>`).join('')
-  return `<article class="paper">
-    <h2 class="paper-name">${esc(resume.name)}</h2>
-    ${contact ? `<p class="paper-contact">${contact}</p>` : ''}
-    ${resume.headline ? `<p class="paper-line">${esc(resume.headline)}</p>` : ''}
-    ${resume.summary ? `<p class="paper-summary">${esc(resume.summary)}</p>` : ''}
-    ${(resume.education || []).length ? `<h2>${esc(copy.pdf.education)}</h2><ul class="paper-education">${resume.education.map((line) => `<li>${esc(line)}</li>`).join('')}</ul>` : ''}
-    ${resume.skills?.length ? `<h2>${esc(copy.pdf.skills)}</h2><p class="paper-skills">${esc(resume.skills.join(', '))}</p>` : ''}
-    ${work ? `<h2>${esc(copy.pdf.selectedWork)}</h2>${work}` : ''}
-    ${(resume.contributions || []).length ? `<h2>${esc(copy.pdf.contributions)}</h2>${resume.contributions.map((item) => `<section><h3>${esc(item.title || '')}</h3>${item.url ? `<p class="paper-url">${esc(item.url)}</p>` : ''}<ul><li>${esc(item.line)}</li></ul></section>`).join('')}` : ''}
-  </article>`
+  return renderPaperHtml(resume, esc, { editing: state.editing })
 }
 
 function header() {
   const account = state.me?.account
+  const leave = account?.preview
+    ? copy.nav.guestLeave
+    : (account?.clerk ? copy.nav.signOut : copy.nav.disconnect)
   const right = account
     ? `<a href="/links" data-go="/links">${esc(copy.nav.links)}</a>
        <a href="${account.preview || account.githubConnected ? '/studio' : '/start'}" data-go="${account.preview || account.githubConnected ? '/studio' : '/start'}">${esc(copy.nav.newLink)}</a>
-       <button type="button" data-action="logout">${esc(account.clerk ? copy.nav.signOut : copy.nav.disconnect)}</button>`
+       <button type="button" data-action="logout">${esc(leave)}</button>`
     : `<a href="/sign-in" data-go="/sign-in">${esc(copy.nav.login)}</a>
        <a class="button" href="/join" data-go="/join">${esc(copy.nav.signIn)}</a>`
   return `<a class="mark" href="/" data-go="/"><img class="mark-icon" src="/favicon.svg" alt="">${esc(copy.name)}</a><nav>${right}</nav>`
+}
+
+function downloadIcon() {
+  return `<svg class="icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg>`
+}
+
+function paperDownload(url) {
+  return `<a class="icon-button" href="${esc(url)}" download aria-label="${esc(copy.detail.download)}" title="${esc(copy.detail.download)}">${downloadIcon()}</a>`
 }
 
 function banner() {
@@ -148,9 +333,24 @@ function banner() {
   const denied = notice === 'denied' ? copy.errors.denied : ''
   const setup = notice === 'setup' ? copy.errors.notReady : ''
   const taken = notice === 'taken' ? copy.auth.taken : ''
-  const message = state.error || denied || setup || taken
+  const google = notice === 'google' ? copy.auth.googleFailed : ''
+  const message = state.error || denied || setup || taken || google
   const good = state.notice
   return `${message ? `<p class="banner" role="alert">${esc(message)}</p>` : ''}${good ? `<p class="ok" role="status">${esc(good)}</p>` : ''}`
+}
+
+function guestBanner() {
+  if (!state.me?.account?.preview) return ''
+  const connect = state.me?.githubReady
+    ? `<a class="guest-connect" href="/api/auth/github?visibility=all">${esc(copy.guest.connectGitHub)}</a>`
+    : ''
+  return `<p class="guest-banner" role="status">${esc(copy.guest.banner)} ${connect}${connect ? ' · ' : ''}<a href="/join" data-go="/join">${esc(copy.guest.signUp)}</a>.</p>`
+}
+
+function guestButton(label = copy.guest.continue) {
+  if (state.me?.account) return ''
+  if (state.me && !state.me.guest) return ''
+  return `<button class="button secondary" type="button" data-action="guest" ${state.busy ? 'disabled' : ''}>${esc(label)}</button>`
 }
 
 function viewHome() {
@@ -161,6 +361,7 @@ function viewHome() {
       <p class="lede">${esc(copy.home.lede)}</p>
       <div class="actions">
         <a class="button" href="${makePath()}" data-go="${makePath()}">${esc(copy.home.make)}</a>
+        ${guestButton(copy.home.guest)}
         <a class="secondary button" href="/sample">${esc(copy.home.example)}</a>
       </div>
       <ol class="steps">
@@ -168,80 +369,83 @@ function viewHome() {
       </ol>
       <p class="quiet trust">${esc(copy.home.trust)}</p>
     </div>
-    <div class="stage">
+    <div class="stage hero-stage">
       <div class="paper-back" aria-hidden="true"></div>
-      ${paper(state.example)}
+      <div class="paper-frame hero-paper" data-paper-root>${paper(state.example)}</div>
     </div>
   </section>`
 }
 
 function viewStart() {
-  const practice = state.me?.practice && !state.me?.account
-    ? `<button class="button secondary" type="button" data-action="practice" ${state.busy ? 'disabled' : ''}>${esc(copy.start.practice)}</button>`
-    : ''
+  const tryGuest = guestButton(copy.start.guest)
   const ready = state.me?.githubReady
-  const signedIn = Boolean(state.me?.account && !state.me.account.preview)
   const loginFirst = `/sign-in?next=${encodeURIComponent('/start')}`
+  const canConnectGithub = Boolean(state.me?.account) || !state.me?.signInReady
   const connect = ready
-    ? (signedIn || !state.me?.signInReady
+    ? (canConnectGithub
       ? `<button class="button" type="submit">${esc(copy.start.connect)}</button>`
       : `<a class="button" href="${loginFirst}" data-go="${loginFirst}">${esc(copy.nav.login)}</a>`)
     : `<p class="quiet">${esc(copy.start.notReady)}</p>`
   return `<section class="panel">
     <h1>${esc(copy.start.title)}</h1>
     <p class="lede">${esc(copy.start.lede)}</p>
+    <p>${esc(copy.start.publicModel)}</p>
+    <p>${esc(copy.start.privateModel)}</p>
+    <p>${esc(copy.start.both)}</p>
     ${banner()}
-    <form id="start-form" class="choice-row">
-      <label class="choice is-on">
-        <input type="radio" name="visibility" value="public" checked>
-        <span><strong>${esc(copy.start.publicTitle)}</strong>${esc(copy.start.publicBody)}</span>
-      </label>
-      <label class="choice">
-        <input type="radio" name="visibility" value="all">
-        <span><strong>${esc(copy.start.allTitle)}</strong>${esc(copy.start.allBody)}</span>
-      </label>
+    <form id="start-form">
       <div class="actions">
         ${connect}
-        ${practice}
+        ${tryGuest}
       </div>
     </form>
   </section>`
 }
 
-function googleMark() {
-  return `<svg viewBox="0 0 18 18" width="18" height="18" aria-hidden="true"><path fill="#4285F4" d="M17.64 9.2c0-.64-.06-1.25-.16-1.84H9v3.48h4.84a4.14 4.14 0 0 1-1.8 2.72v2.26h2.9c1.7-1.57 2.7-3.88 2.7-6.62z"/><path fill="#34A853" d="M9 18c2.43 0 4.47-.8 5.96-2.18l-2.9-2.26c-.81.54-1.84.86-3.06.86-2.35 0-4.34-1.59-5.05-3.72H.96v2.33A9 9 0 0 0 9 18z"/><path fill="#FBBC05" d="M3.95 10.7A5.4 5.4 0 0 1 3.66 9c0-.59.1-1.16.29-1.7V4.97H.96A9 9 0 0 0 0 9c0 1.45.35 2.82.96 4.03l2.99-2.33z"/><path fill="#EA4335" d="M9 3.58c1.32 0 2.5.45 3.44 1.35l2.58-2.58C13.46.89 11.43 0 9 0A9 9 0 0 0 .96 4.97L3.95 7.3C4.66 5.17 6.65 3.58 9 3.58z"/></svg>`
-}
-
-function viewAuth(mode) {
-  const joining = mode === 'join'
-  const ready = state.me?.signInReady
-  const loginHref = authPath('/sign-in')
-  const joinHref = authPath('/join')
-  const codeStep = joining && state.authStep === 'code'
-  const title = codeStep ? copy.auth.code : (joining ? copy.auth.signInTitle : copy.auth.loginTitle)
-  const lede = codeStep ? copy.auth.codeLede : (joining ? copy.auth.signInLede : copy.auth.loginLede)
-  const fields = codeStep
-    ? `<label class="field"><span>${esc(copy.auth.code)}</span><input name="code" inputmode="numeric" autocomplete="one-time-code" required></label>`
-    : `<label class="field"><span>${esc(copy.auth.email)}</span><input name="email" type="email" autocomplete="email" required></label>
-       <label class="field"><span>${esc(copy.auth.password)}</span><input name="password" type="password" autocomplete="${joining ? 'new-password' : 'current-password'}" required></label>`
-  const button = codeStep ? copy.auth.confirm : (joining ? copy.nav.signIn : copy.nav.login)
-  const google = codeStep ? '' : `<button class="button google" type="button" data-action="google" ${!ready || state.busy ? 'disabled' : ''}>${googleMark()}<span>${esc(copy.auth.google)}</span></button><p class="auth-or">${esc(copy.auth.or)}</p>`
-  return `<section class="panel">
-    <div class="auth-switch" role="tablist">
-      <a href="${loginHref}" data-go="${loginHref}" class="${joining ? '' : 'is-on'}" role="tab" aria-selected="${joining ? 'false' : 'true'}">${esc(copy.nav.login)}</a>
-      <a href="${joinHref}" data-go="${joinHref}" class="${joining ? 'is-on' : ''}" role="tab" aria-selected="${joining ? 'true' : 'false'}">${esc(copy.nav.signIn)}</a>
-    </div>
-    <h1>${esc(title)}</h1>
-    <p class="lede">${esc(lede)}</p>
-    ${banner()}
-    ${ready ? '' : `<p class="quiet">${esc(copy.auth.notReady)}</p>`}
-    <form id="${codeStep ? 'auth-code' : 'auth-form'}" class="auth-form">
-      ${google}
-      ${fields}
-      <div id="clerk-captcha"></div>
-      <div class="actions">
-        <button class="button" type="submit" ${!ready || state.busy ? 'disabled' : ''}>${esc(state.busy ? copy.loading : button)}</button>
-      </div>
+function viewAuth() {
+  const join = parse(location.pathname).name === 'join'
+  const title = join ? copy.auth.signInTitle : copy.auth.loginTitle
+  const lede = join ? copy.auth.signInLede : copy.auth.loginLede
+  const other = join
+    ? `<a href="/sign-in" data-go="/sign-in">${esc(copy.nav.login)}</a>`
+    : `<a href="/join" data-go="/join">${esc(copy.nav.signIn)}</a>`
+  const switchLine = join
+    ? `Already have an account? ${other}`
+    : `Don't have an account? ${other}`
+  if (!state.me?.signInReady) {
+    return `<section class="panel auth-panel"><p class="quiet">${esc(copy.auth.notReady)}</p></section>`
+  }
+  if (state.authStep === 'code') {
+    return `<section class="panel auth-panel">
+      <form id="auth-code" class="auth-card">
+        <img class="auth-mark" src="/favicon.svg" alt="">
+        <h1>${esc(copy.auth.code)}</h1>
+        <p class="lede">${esc(copy.auth.codeLede)}</p>
+        ${banner()}
+        <label class="field"><span>${esc(copy.auth.code)}</span><input name="code" inputmode="numeric" autocomplete="one-time-code" required></label>
+        <button class="button auth-submit" type="submit" ${state.busy ? 'disabled' : ''}>${esc(copy.auth.confirm)}</button>
+      </form>
+    </section>`
+  }
+  return `<section class="panel auth-panel">
+    <form id="auth-form" class="auth-card">
+      <img class="auth-mark" src="/favicon.svg" alt="">
+      <h1>${esc(title)}</h1>
+      <p class="lede">${esc(lede)}</p>
+      ${banner()}
+      <label class="field"><span>${esc(copy.auth.email)}</span><input name="email" type="email" autocomplete="email" required></label>
+      <label class="field field-password"><span>${esc(copy.auth.password)}</span>
+        <span class="password-wrap">
+          <input name="password" type="password" autocomplete="${join ? 'new-password' : 'current-password'}" required>
+          <button type="button" class="password-toggle" data-action="toggle-password" aria-label="${esc(copy.auth.showPassword)}" aria-pressed="false">
+            <svg class="icon icon-eye" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
+            <svg class="icon icon-eye-off" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9.88 9.88a3 3 0 1 0 4.24 4.24"/><path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68"/><path d="M6.61 6.61A13.52 13.52 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61"/><line x1="2" x2="22" y1="2" y2="22"/></svg>
+          </button>
+        </span>
+      </label>
+      <button class="button auth-submit" type="submit" ${state.busy ? 'disabled' : ''}>${esc(state.busy ? copy.loading : copy.auth.confirm)}</button>
+      ${guestButton() ? `<p class="auth-guest">${guestButton()}</p>` : ''}
+      <p class="auth-switch">${switchLine}</p>
     </form>
   </section>`
 }
@@ -253,17 +457,65 @@ function fields(values) {
     <label class="field"><span>${esc(copy.studio.line)}</span><input name="headline" value="${esc(values.headline || '')}"></label>
     <label class="field"><span>${esc(copy.studio.email)}</span><input name="email" type="email" value="${esc(values.email || '')}"></label>
     <label class="field"><span>${esc(copy.studio.place)}</span><input name="location" value="${esc(values.location || '')}"></label>
+    <label class="field"><span>${esc(copy.studio.experience)}</span><textarea name="experience" placeholder="${esc(copy.studio.experiencePlaceholder)}">${esc(values.experience || '')}</textarea></label>
+    <p class="help">${esc(copy.studio.experienceHelp)}</p>
     <label class="field"><span>${esc(copy.studio.education)}</span><textarea name="education" placeholder="${esc(copy.studio.educationPlaceholder)}">${esc(values.education || '')}</textarea></label>
     <p class="help">${esc(copy.studio.educationHelp)}</p>`
 }
 
+function isProfileRepo(project) {
+  const [owner, repo] = String(project.fullName || '').split('/')
+  return Boolean(owner && repo && owner.toLowerCase() === repo.toLowerCase())
+}
+
 function projectsInScope(visibility) {
-  return state.projects.filter((project) => visibility === 'all' || !project.private)
+  return state.projects.filter((project) => {
+    if (isProfileRepo(project)) return false
+    return visibility === 'all' || !project.private
+  })
+}
+
+function mergeRoleRepos(scope, role, selected, { fillEmpty = false } = {}) {
+  const pool = projectsInScope(scope)
+  const allowed = new Set(pool.map((project) => project.fullName))
+  let repos = [...new Set((selected || []).filter((name) => allowed.has(name)))]
+  const roleText = String(role || '').trim()
+  if (!roleText) {
+    return fillEmpty && !repos.length ? pool.filter((project) => !project.fork).map((project) => project.fullName) : repos
+  }
+  const matched = fullNamesForRole(pool, roleText)
+  if (fillEmpty && !repos.length) {
+    repos = matched.length ? matched : pool.filter((project) => !project.fork).map((project) => project.fullName)
+    return repos.filter((name) => !state.deselectedRepos.has(name))
+  }
+  for (const fullName of matched) {
+    if (state.deselectedRepos.has(fullName) || repos.includes(fullName)) continue
+    repos.push(fullName)
+  }
+  return repos
+}
+
+function absorbNewRoleRepos(scope, role, selected, previousNames) {
+  const roleText = String(role || '').trim()
+  const prev = previousNames || new Set()
+  if (!roleText || !prev.size) return selected
+  const pool = projectsInScope(scope)
+  const newcomers = pool.filter((project) => !prev.has(project.fullName))
+  if (!newcomers.length) return selected
+  const matched = new Set(fullNamesForRole(newcomers, roleText))
+  const repos = [...(selected || [])]
+  for (const project of newcomers) {
+    if (!matched.has(project.fullName) || state.deselectedRepos.has(project.fullName)) continue
+    if (!repos.includes(project.fullName)) repos.push(project.fullName)
+  }
+  return repos
 }
 
 function projectList(selected, visibility) {
   const chosen = new Set(selected || [])
-  if (state.projectsLoading || !state.projectsFor) return `<p class="quiet">${esc(copy.loading)}</p>`
+  if (state.projectsLoading || state.projectsRetrying || needsProjectsLoad(visibility)) {
+    return `<p class="quiet">${esc(state.projectsRetrying ? copy.errors.stillWorking : copy.errors.loadingProjects)}</p>`
+  }
   if (state.needGithub) return `<p class="quiet">${esc(copy.errors.connectWork)}</p>`
   if (state.needPrivate) {
     return `<p class="quiet">${esc(copy.errors.needPrivate)}</p><p><a class="button" href="/api/auth/github?visibility=all">${esc(copy.studio.allow)}</a></p>`
@@ -300,9 +552,14 @@ function projectChoices(values) {
           <input type="radio" name="visibility" value="${value}" ${on ? 'checked' : ''}>
           <span><strong>${esc(title)}</strong>${esc(body)}</span>
         </label>
-        ${on ? `<div class="choice-tools">
+        ${on && (state.projectsLoading || state.projectsRetrying || needsProjectsLoad(value)) ? `<p class="quiet">${esc(state.projectsRetrying ? copy.errors.stillWorking : copy.errors.loadingProjects)}</p><div class="wait-bar" role="progressbar" aria-busy="true"><span></span></div>` : ''}
+        ${on && state.projectsError && !state.projectsRetrying ? `<p class="banner">${esc(state.projectsError)}</p><div class="actions"><button class="button secondary" type="button" data-action="retry-projects">${esc(copy.detail.check)}</button>${state.projectsError === copy.errors.sessionLost ? `<a class="button" href="${signInAgainPath()}" data-go="${signInAgainPath()}">${esc(copy.nav.login)}</a>` : ''}</div>` : ''}
+        ${on && state.needGithub ? `<p class="quiet">${esc(copy.errors.connectWork)}</p>` : ''}
+        ${on && state.needPrivate ? `<p class="quiet">${esc(copy.errors.needPrivate)}</p><p><a class="button" href="/api/auth/github?visibility=all">${esc(copy.studio.allow)}</a></p>` : ''}
+        ${on && !state.needPrivate && !state.needGithub && !state.projectsLoading && !state.projectsRetrying && !needsProjectsLoad(value) && !state.projectsError ? `<div class="choice-tools">
           <button class="text-button" type="button" data-action="toggle-projects">${esc(state.projectsOpen ? copy.studio.hideProjects : copy.studio.leaveSome)}</button>
           ${projectsInScope(value).some((project) => project.fork) ? `<button class="text-button" type="button" data-action="leave-forks">${esc(copy.studio.leaveForks)}</button>` : ''}
+          <span class="help" data-total></span>
           <span class="help" data-count></span>
         </div>
         ${state.projectsOpen ? projectList(values.repos, value) : ''}` : ''}
@@ -325,6 +582,7 @@ function viewStudio() {
   return `<section class="panel">
     <h1>${esc(copy.studio.title)}</h1>
     <p class="lede">${esc(copy.studio.lede)}</p>
+    ${guestBanner()}
     ${banner()}
     <form id="editor">
       ${fields(values)}
@@ -332,23 +590,44 @@ function viewStudio() {
       <p class="help">${esc(copy.studio.projectsHelp)}</p>
       ${projectChoices(values)}
       ${briefFields(values)}
-      <button class="button" type="submit" ${state.busy ? 'disabled' : ''}>${esc(state.busy ? copy.studio.creating : copy.studio.create)}</button>
+      <button class="button" type="submit" ${state.busy || state.projectsLoading || needsProjectsLoad(values.visibility === 'all' ? 'all' : 'public') ? 'disabled' : ''}>${esc(state.busy || state.projectsLoading || needsProjectsLoad(values.visibility === 'all' ? 'all' : 'public') ? copy.studio.creating : copy.studio.create)}</button>
     </form>
   </section>`
 }
 
+function removeControls(id, label = copy.detail.remove) {
+  if (state.confirmRemove === id) {
+    return `<div class="link-remove">
+      <p class="help">${esc(copy.detail.confirm)}</p>
+      <div class="actions">
+        <button class="button danger" type="button" data-action="remove" data-id="${esc(id)}">${esc(copy.detail.yesRemove)}</button>
+        <button class="button secondary" type="button" data-action="keep-link">${esc(copy.detail.keep)}</button>
+      </div>
+    </div>`
+  }
+  return `<button class="button danger" type="button" data-action="ask-remove" data-id="${esc(id)}">${esc(label)}</button>`
+}
+
 function viewLinks() {
   if (!state.links.length) {
-    return `<section class="list-page"><h1>${esc(copy.links.title)}</h1>${banner()}<p class="lede">${esc(copy.links.empty)}</p><a class="button" href="/studio" data-go="/studio">${esc(copy.nav.newLink)}</a></section>`
+    return `<section class="list-page"><h1>${esc(copy.links.title)}</h1>${guestBanner()}${banner()}<p class="lede">${esc(copy.links.empty)}</p><a class="button" href="/studio" data-go="/studio">${esc(copy.nav.newLink)}</a></section>`
   }
   return `<section class="list-page">
     <h1>${esc(copy.links.title)}</h1>
+    ${guestBanner()}
     ${banner()}
     <div class="cards">
-      ${state.links.map((link) => `<a class="card" href="/links/${esc(link.id)}" data-go="/links/${esc(link.id)}">
-        <span><strong>${esc(link.roleTarget)}</strong><small class="quiet">${esc(link.refreshedLabel || link.lastError || '')}</small></span>
-        <span>${esc(copy.links.open)}</span>
-      </a>`).join('')}
+      ${state.links.map((link) => `<div class="card">
+        <a class="card-main" href="/links/${esc(link.id)}" data-go="/links/${esc(link.id)}">
+          <span><strong>${esc(link.roleTarget)}</strong><small class="quiet">${esc(link.refreshedLabel || link.lastError || '')}</small></span>
+        </a>
+        <span class="card-side">
+          <a href="/links/${esc(link.id)}" data-go="/links/${esc(link.id)}">${esc(copy.links.open)}</a>
+          ${state.confirmRemove === link.id
+            ? `<button class="text-button danger" type="button" data-action="remove" data-id="${esc(link.id)}">${esc(copy.links.yesRemove)}</button><button class="text-button" type="button" data-action="keep-link">${esc(copy.detail.keep)}</button>`
+            : `<button class="text-button danger" type="button" data-action="ask-remove" data-id="${esc(link.id)}">${esc(copy.links.remove)}</button>`}
+        </span>
+      </div>`).join('')}
     </div>
   </section>`
 }
@@ -360,6 +639,7 @@ function formFromLink(link) {
     email: link.email || '',
     location: link.location || '',
     education: link.education || '',
+    experience: link.experience || '',
     roleTarget: link.roleTarget || '',
     instructions: link.instructions || '',
     visibility: link.visibility || 'public',
@@ -371,14 +651,31 @@ function viewDetail() {
   const link = state.current
   if (!link) return `<section class="panel"><p class="quiet">${esc(copy.loading)}</p></section>`
   if (!link.resume && link.status !== 'error') {
+    if (state.stalled) {
+      return `<section class="panel wait">
+        <h1>${esc(copy.detail.slow)}</h1>
+        <div class="actions">
+          <button class="button" type="button" data-action="refresh" ${state.busy ? 'disabled' : ''}>${esc(copy.detail.check)}</button>
+          ${removeControls(link.id)}
+        </div>
+      </section>`
+    }
     return `<section class="panel wait">
       <h1>${esc(copy.detail.waiting)}</h1>
-      <div class="wait-bar" aria-hidden="true"><span></span></div>
+      <div class="wait-bar" role="progressbar" aria-busy="true" aria-label="${esc(copy.detail.waiting)}"><span></span></div>
+      <p class="quiet">${esc(copy.detail.same)}</p>
+      <div class="actions">
+        <button class="button secondary" type="button" data-action="refresh" ${state.busy ? 'disabled' : ''}>${esc(copy.detail.check)}</button>
+        ${removeControls(link.id)}
+      </div>
     </section>`
   }
   if (!link.resume) {
     return `<section class="panel">${banner()}<p class="banner">${esc(link.lastError || copy.errors.readFailed)}</p>
-      <button class="button" type="button" data-action="refresh">${esc(copy.detail.check)}</button></section>`
+      <div class="actions">
+        <button class="button" type="button" data-action="refresh">${esc(copy.detail.check)}</button>
+        ${removeControls(link.id)}
+      </div></section>`
   }
   const values = state.form || formFromLink(link)
   return `<section class="panel split">
@@ -407,11 +704,15 @@ function viewDetail() {
         </div>
       </form>
       <p class="help">${esc(copy.detail.removeHelp)}</p>
-      ${state.confirmRemove
-        ? `<p>${esc(copy.detail.confirm)}</p><button class="button danger" type="button" data-action="remove">${esc(copy.detail.yesRemove)}</button>`
-        : `<button class="button danger" type="button" data-action="ask-remove">${esc(copy.detail.remove)}</button>`}
+      ${removeControls(link.id)}
     </div>
-    <div>${paper(link.resume)}</div>
+    <div class="paper-column">
+      <div class="paper-tools">
+        ${paperDownload(link.pdfUrl)}
+        <button class="text-button" type="button" data-action="edit-paper">${esc(state.editing ? copy.studio.done : copy.studio.edit)}</button>
+      </div>
+      <div class="paper-frame"><div id="paper-slot" data-paper-root>${paper(link.resume)}</div></div>
+    </div>
   </section>`
 }
 
@@ -421,13 +722,14 @@ function viewMissing() {
 
 function blankForm(account) {
   const params = new URLSearchParams(location.search)
-  const visibility = params.get('visibility') === 'all' || account?.preview ? 'all' : 'public'
+  const visibility = (params.get('visibility') === 'all' || account?.preview) ? 'all' : 'public'
   return {
     displayName: account?.name || '',
     headline: account?.headline != null ? account.headline : (account?.bio || ''),
     email: account?.email || '',
     location: account?.location || '',
     education: '',
+    experience: '',
     roleTarget: '',
     instructions: '',
     visibility,
@@ -443,6 +745,7 @@ function readEditor(form) {
     email: String(data.get('email') || ''),
     location: String(data.get('location') || ''),
     education: String(data.get('education') || ''),
+    experience: String(data.get('experience') || ''),
     roleTarget: String(data.get('roleTarget') || ''),
     instructions: String(data.get('instructions') || ''),
     visibility: data.get('visibility') === 'all' ? 'all' : 'public',
@@ -457,6 +760,9 @@ function updateCount() {
     : (state.form?.repos || []).length
   const node = document.querySelector('[data-count]')
   if (node) node.textContent = `${count} ${copy.studio.count}`
+  const totalNode = document.querySelector('[data-total]')
+  const total = state.counts?.all
+  if (totalNode) totalNode.textContent = total == null ? '' : `${total} ${copy.studio.found}`
   const publicBoxes = [...document.querySelectorAll('#editor input[name="repo"]')].filter((box) => box.dataset.private !== '1')
   const selectAll = document.querySelector('#editor [data-select-public]')
   if (selectAll) selectAll.checked = publicBoxes.length > 0 && publicBoxes.every((box) => box.checked)
@@ -470,10 +776,27 @@ function updateCount() {
   })
 }
 
+function syncGuestProjects() {
+  if (!guestSampleMode()) return
+  rememberPreviewProjects(state.me)
+  const scope = currentProjectScope()
+  if (state.previewProjectPool?.length && state.projectsLoadedFor !== scope) {
+    applyPreviewProjects(scope)
+    state.projectsLoading = false
+    state.projectsRetrying = false
+    if (state.projects.length) state.projectsOpen = true
+  }
+}
+
 function render() {
   const route = parse(location.pathname)
+  if (route.name === 'studio' || route.name === 'detail') syncGuestProjects()
   document.querySelector('#top').innerHTML = header()
   const main = document.querySelector('#main')
+  if (route.name === 'sign-in' && state.me?.account && (state.me.guest || state.me.account.preview)) {
+    go('/studio')
+    return
+  }
   if ((route.name === 'sign-in' || route.name === 'join') && state.me?.account && !state.me.account.preview) {
     go(safeNext() || (state.me.account.githubConnected ? '/links' : '/start'))
     return
@@ -491,11 +814,13 @@ function render() {
     main.innerHTML = `<section class="panel"><p class="quiet">${esc(copy.loading)}</p></section>`
     if (!state.callbackStarted && state.me?.publishableKey) {
       state.callbackStarted = true
-      finishGoogleRedirect(state.me.publishableKey).catch((error) => {
-        state.callbackStarted = false
-        state.error = clerkMessage(error)
-        go('/sign-in')
-      })
+      authModule().then(({ finishGoogleRedirect, clerkMessage }) =>
+        finishGoogleRedirect(state.me.publishableKey).catch((error) => {
+          state.callbackStarted = false
+          state.error = clerkMessage(error)
+          go('/sign-in')
+        }),
+      )
     }
     return
   }
@@ -511,59 +836,152 @@ function render() {
     openLinks()
     return
   }
+  if (route.name === 'studio' && state.form && !state.reposTouched && !state.projectsLoading) {
+    const scope = state.form.visibility === 'all' ? 'all' : 'public'
+    if (!state.form.repos.length && !state.needGithub && !state.needPrivate && !state.projectsError && state.projects.length) {
+      state.form.repos = mergeRoleRepos(scope, state.form.roleTarget, [], { fillEmpty: true })
+      if (state.form.repos.length) state.projectsOpen = true
+    }
+  }
   const views = {
     home: viewHome,
     start: viewStart,
-    'sign-in': () => viewAuth('login'),
-    join: () => viewAuth('join'),
+    'sign-in': viewAuth,
+    join: viewAuth,
     studio: viewStudio,
     links: viewLinks,
     detail: viewDetail,
     missing: viewMissing,
   }
   main.innerHTML = (views[route.name] || viewMissing)()
+  main.removeAttribute('aria-busy')
   if ((route.name === 'sign-in' || route.name === 'join') && state.me?.publishableKey) {
-    loadClerk(state.me.publishableKey).catch(() => {})
+    const node = document.getElementById('clerk-auth')
+    if (node) {
+      authModule().then(({ showClerkAuth, clerkMessage }) =>
+        showClerkAuth(node, state.me.publishableKey, {
+          mode: route.name === 'join' ? 'join' : 'login',
+          next: safeNext(),
+        }).catch((error) => {
+          state.error = clerkMessage(error)
+          render()
+        }),
+      )
+    }
   }
   document.title = copy.name
   const editor = document.querySelector('#editor')
-  if (route.name === 'studio' || route.name === 'detail') {
-    const visibility = editor?.visibility?.value || state.form?.visibility || 'public'
-    if (state.projectsFor !== visibility && !state.projectsLoading && state.me?.account) ensureProjects(visibility)
-  }
+  maybeLoadProjects()
   updateCount()
+  if (!state.editing) schedulePaperLayout()
 }
 
 async function ensureProjects(visibility) {
-  if (state.projectsLoading) return
+  const seq = ++projectsLoadSeq
   state.projectsFor = visibility
-  state.projectsLoading = true
-  render()
-  try {
-    const data = await api(`/api/projects?visibility=${encodeURIComponent(visibility)}`)
-    state.projects = data.projects || []
-    state.needPrivate = Boolean(data.needPrivate)
-    state.needGithub = Boolean(data.needGithub)
-    state.projectsError = ''
-  } catch (error) {
-    state.projectsError = error.message
-    state.projects = []
-    state.needGithub = false
-  } finally {
+  if (guestSampleMode()) rememberPreviewProjects(state.me)
+  if (applyPreviewProjects(visibility)) {
     state.projectsLoading = false
+    state.projectsRetrying = false
+    state.projectsError = ''
+    const editor = document.querySelector('#editor')
+    if (editor) {
+      const next = readEditor(editor)
+      const scope = next.visibility || visibility
+      const ready = true
+      const role = next.roleTarget || ''
+      if (!state.reposTouched && (state.fillRepos || !next.repos.length)) {
+        next.repos = mergeRoleRepos(scope, role, [], { fillEmpty: true })
+        state.filledFor = scope
+      }
+      state.form = next
+      if (projectsInScope(scope).length) state.projectsOpen = true
+    }
+    render()
+    return
+  }
+  state.projectsLoading = true
+  state.projectsLoadingSince = Date.now()
+  state.projectsRetrying = false
+  state.projectsError = ''
+  render()
+  const maxAttempts = 3
+  let data = null
+  let lastError = null
+  try {
+    for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+      if (seq !== projectsLoadSeq) return
+      if (attempt > 0) {
+        state.projectsRetrying = true
+        state.projectsError = ''
+        render()
+        await apiDelay(Math.min(4500, 450 * attempt))
+        await refreshMe()
+      }
+      try {
+        data = await apiOnce(`/api/projects?visibility=${encodeURIComponent(visibility)}`, { timeoutMs: 15000 })
+        lastError = null
+        break
+      } catch (error) {
+        lastError = error
+        if (error.name === 'TimeoutError' || error.name === 'AbortError') {
+          lastError = new Error(copy.errors.gaveUp)
+          lastError.status = 408
+        }
+        const canRetry = attempt < maxAttempts - 1
+        const authMiss = error.status === 401 || error.message === copy.errors.signedOut
+        const transient = error.status >= 500 || error.status === 429 || error.status === 408
+          || error.message === copy.errors.generic
+        if (canRetry && (authMiss || transient)) continue
+        break
+      }
+    }
+    if (seq !== projectsLoadSeq) return
+    state.projectsRetrying = false
+    if (data) {
+      state.projects = data.projects || []
+      state.counts = data.counts || { all: state.projects.length }
+      state.needPrivate = Boolean(data.needPrivate)
+      state.needGithub = Boolean(data.needGithub)
+      state.projectsError = ''
+      state.projectsLoadedFor = visibility
+    } else if (lastError) {
+      state.projectsLoadedFor = ''
+      state.projectsError = lastError.status === 401 ? copy.errors.sessionLost : lastError.message
+      state.projects = []
+      state.counts = null
+      state.needGithub = false
+    }
     const editor = document.querySelector('#editor')
     if (editor) {
       const next = readEditor(editor)
       if (!editor.querySelector('input[name="repo"]')) next.repos = state.form?.repos || []
       const scope = next.visibility || visibility
-      if (!state.projectsError && !state.needPrivate && !state.needGithub && (state.fillRepos || (state.filledFor !== scope && !next.repos.length))) {
-        next.repos = projectsInScope(scope).map((project) => project.fullName)
-        state.filledFor = scope
+      const ready = !state.projectsError && !state.needPrivate && !state.needGithub
+      const inScope = projectsInScope(scope).map((project) => project.fullName)
+      const prevNames = state.projectNamesSeen || new Set()
+      const role = next.roleTarget || ''
+      if (state.needPrivate) {
+        next.repos = []
+      } else if (ready) {
+        if (!state.reposTouched && (state.fillRepos || !next.repos.length)) {
+          next.repos = mergeRoleRepos(scope, role, [], { fillEmpty: true })
+          state.filledFor = scope
+        } else if (role) {
+          next.repos = absorbNewRoleRepos(scope, role, next.repos, prevNames)
+        }
       }
+      state.projectNamesSeen = new Set(state.projects.map((project) => project.fullName))
       state.fillRepos = false
       state.form = next
+      if (ready && inScope.length) state.projectsOpen = true
     }
     render()
+  } finally {
+    if (seq === projectsLoadSeq) {
+      state.projectsLoading = false
+      state.projectsRetrying = false
+    }
   }
 }
 
@@ -575,8 +993,13 @@ async function openDetail(id) {
     state.filledFor = state.current.visibility || 'public'
     state.fillRepos = false
     state.projectsOpen = false
-    if (state.projectsFor !== state.current.visibility) state.projectsFor = ''
+    const scope = state.current.visibility === 'all' ? 'all' : 'public'
+    if (state.projectsLoadedFor !== scope) {
+      state.projectsFor = ''
+      state.projectsLoadedFor = ''
+    }
     state.error = ''
+    state.stalled = false
   } catch (error) {
     state.current = null
     state.error = error.message
@@ -585,8 +1008,14 @@ async function openDetail(id) {
   }
   if (state.watchToken !== token) return
   render()
-  if (state.current?.status === 'preparing') watch(id, token)
-  else settlePrivate(state.current)
+  if (state.current?.status === 'preparing') {
+    kickRefresh(id)
+    watch(id, token)
+  } else settlePrivate(state.current)
+}
+
+function kickRefresh(id) {
+  api(`/api/links/${id}/refresh`, { method: 'POST', body: { full: true } }).catch(() => {})
 }
 
 async function watch(id, token) {
@@ -607,6 +1036,10 @@ async function watch(id, token) {
       return
     }
   }
+  if (state.watchToken !== token) return
+  kickRefresh(id)
+  state.stalled = true
+  render()
 }
 
 function localKey(link) {
@@ -627,6 +1060,7 @@ async function settlePrivate(link) {
       const reader = await api('/api/github/reader')
       token = reader.token || ''
     }
+    const { readPrivateLocally } = await import('./privateRead.js')
     const readings = await readPrivateLocally(link.localReads, {
       preview: Boolean(state.me?.account?.preview),
       token,
@@ -662,30 +1096,106 @@ async function openLinks() {
   render()
 }
 
+async function loadBootMe() {
+  let lastError
+  for (let attempt = 0; attempt < 6; attempt += 1) {
+    try {
+      return await apiOnce('/api/me', { timeoutMs: 15000 })
+    } catch (error) {
+      lastError = error
+      const retry = attempt < 5 && (error.status === 401 || error.status >= 500 || error.status === 429)
+      if (!retry) throw error
+      await apiDelay(400 * (attempt + 1))
+    }
+  }
+  throw lastError
+}
+
+function fallbackMe() {
+  return {
+    account: null,
+    guest: true,
+    githubReady: false,
+    signInReady: false,
+    publishableKey: '',
+  }
+}
+
+async function hydrateExampleResume() {
+  try {
+    const example = await api('/api/example', { timeoutMs: 12000, noRetry: true }).catch(() => ({ resume: null }))
+    state.example = example.resume
+    if (state.me?.account) {
+      state.form = blankForm(state.me.account)
+      state.filledFor = ''
+      state.reposTouched = false
+      state.fillRepos = true
+      state.projectsLoadedFor = ''
+    }
+  } catch (error) {
+    if (!state.error) state.error = error.message
+  } finally {
+    stripClerkNoiseFromUrl()
+    render()
+    maybeLoadProjects()
+  }
+}
+
+function deferExampleResume() {
+  const run = () => { void hydrateExampleResume() }
+  if (typeof requestIdleCallback === 'function') requestIdleCallback(run, { timeout: 2200 })
+  else setTimeout(run, 0)
+}
+
 async function boot() {
   try {
-    const [me, example] = await Promise.all([
-      api('/api/me'),
-      api('/api/example').catch(() => ({ resume: null })),
-    ])
-    state.me = me
-    state.example = example.resume
-    if (me.account) state.form = blankForm(me.account)
+    state.me = await loadBootMe()
+    rememberPreviewProjects(state.me)
+    const bootRoute = parse(location.pathname)
+    if (bootRoute.name === 'studio' && guestSampleMode()) {
+      const vis = new URLSearchParams(location.search).get('visibility') === 'all' ? 'all' : 'public'
+      applyPreviewProjects(vis)
+      state.projectsLoading = false
+      state.projectsRetrying = false
+      if (state.projects.length) state.projectsOpen = true
+    }
   } catch (error) {
     state.error = error.message
+    state.me = state.me || fallbackMe()
   }
+  stripClerkNoiseFromUrl()
   render()
+  deferExampleResume()
 }
 
 document.addEventListener('click', async (event) => {
-  const goLink = event.target.closest('[data-go]')
+  const action = event.target.closest('[data-action]')?.getAttribute('data-action')
+  if (action) event.preventDefault()
+  const goLink = action ? null : event.target.closest('[data-go]')
   if (goLink) {
     event.preventDefault()
-    go(goLink.getAttribute('data-go'))
+    const path = goLink.getAttribute('data-go')
+    const name = parse(String(path || '').split('?')[0]).name
+    if (name === 'sign-in' || name === 'join') {
+      window.location.assign(path)
+      return
+    }
+    go(path)
     return
   }
-  const action = event.target.closest('[data-action]')?.getAttribute('data-action')
   if (!action) return
+  if (action === 'toggle-password') {
+    const wrap = event.target.closest('.password-wrap')
+    const input = wrap?.querySelector('input')
+    const btn = wrap?.querySelector('.password-toggle')
+    if (!input || !btn) return
+    const show = input.type === 'password'
+    input.type = show ? 'text' : 'password'
+    btn.setAttribute('aria-pressed', show ? 'true' : 'false')
+    btn.setAttribute('aria-label', show ? copy.auth.hidePassword : copy.auth.showPassword)
+    btn.classList.toggle('is-revealed', show)
+    return
+  }
   if (action === 'toggle-projects') {
     event.preventDefault()
     const form = event.target.closest('form')
@@ -697,6 +1207,7 @@ document.addEventListener('click', async (event) => {
       state.fillRepos = true
       state.form = readEditor(form)
       state.projectsFor = ''
+      state.projectsLoadedFor = ''
       ensureProjects(scope)
       return
     }
@@ -707,6 +1218,7 @@ document.addEventListener('click', async (event) => {
   }
   if (action === 'leave-forks') {
     event.preventDefault()
+    state.reposTouched = true
     const form = event.target.closest('form')
     const scope = form?.querySelector('input[name="visibility"]:checked')?.value === 'all' ? 'all' : 'public'
     const forks = new Set(projectsInScope(scope).filter((project) => project.fork).map((project) => project.fullName))
@@ -718,40 +1230,41 @@ document.addEventListener('click', async (event) => {
     render()
     return
   }
-  if (action === 'google') {
+  if (action === 'logout') {
     const key = state.me?.publishableKey
-    if (!key) {
-      state.error = copy.auth.notReady
-      render()
-      return
-    }
     state.busy = true
-    state.error = ''
     render()
     try {
-      await continueWithGoogle(key, safeNext() || '/')
-    } catch (error) {
-      state.busy = false
-      state.error = clerkMessage(error)
-      render()
+      await api('/api/guest?action=leave', { method: 'POST', body: {} })
+    } catch {
+      /* clear local session even if the server call failed */
     }
-    return
-  }
-  if (action === 'logout') {
-    await api('/api/auth/logout', { method: 'POST', body: {} })
-    state.me = { ...(state.me || {}), account: null }
+    state.me = { ...(state.me || {}), account: null, guest: false }
+    state.previewProjectPool = null
+    state.projects = []
+    state.projectsLoadedFor = ''
+    state.projectsLoading = false
     state.current = null
     state.linksStamp = ''
+    state.form = null
+    state.busy = false
     go('/')
+    if (key) authModule().then(({ loadClerk }) => loadClerk(key).then((clerk) => clerk.signOut())).catch(() => {})
+    return
   }
-  if (action === 'practice') {
+  if (action === 'guest' || action === 'practice') {
     state.busy = true
     render()
     try {
-      const data = await api('/api/preview', { method: 'POST', body: {} })
-      state.me = { ...(state.me || {}), account: data.account, practice: true }
+      const data = await api('/api/guest', { method: 'POST', body: {} })
+      state.me = { ...(state.me || {}), account: data.account, guest: true }
+      rememberPreviewProjects(data)
+      applyPreviewProjects('public')
       state.form = blankForm(data.account)
-      state.projectsFor = ''
+      state.projectsFor = 'public'
+      state.filledFor = ''
+      state.reposTouched = false
+      state.fillRepos = true
       state.busy = false
       go('/studio')
     } catch (error) {
@@ -771,17 +1284,48 @@ document.addEventListener('click', async (event) => {
     event.target.textContent = copy.detail.copied
   }
   if (action === 'ask-remove') {
-    state.confirmRemove = true
+    event.preventDefault()
+    state.confirmRemove = event.target.closest('[data-id]')?.getAttribute('data-id') || state.current?.id || ''
+    render()
+  }
+  if (action === 'retry-projects') {
+    event.preventDefault()
+    state.projectsError = ''
+    state.projectsFor = ''
+    state.projectsLoadedFor = ''
+    const form = document.querySelector('#editor')
+    const scope = form?.querySelector('input[name="visibility"]:checked')?.value === 'all' ? 'all' : 'public'
+    ensureProjects(scope)
+    return
+  }
+  if (action === 'edit-paper') {
+    event.preventDefault()
+    state.editing = !state.editing
+    render()
+    return
+  }
+  if (action === 'keep-link') {
+    event.preventDefault()
+    state.confirmRemove = false
     render()
   }
   if (action === 'remove') {
-    const id = state.current?.id
+    event.preventDefault()
+    const id = event.target.closest('[data-id]')?.getAttribute('data-id') || state.current?.id
     if (!id) return
-    await api(`/api/links/${id}`, { method: 'DELETE' })
-    state.current = null
-    state.linksStamp = ''
-    state.notice = copy.notice.removed
-    go('/links')
+    try {
+      await api(`/api/links/${id}`, { method: 'DELETE' })
+      state.links = state.links.filter((link) => link.id !== id)
+      if (state.current?.id === id) state.current = null
+      state.linksStamp = ''
+      state.confirmRemove = false
+      state.notice = copy.notice.removed
+      if (parse(location.pathname).name === 'links') render()
+      else go('/links')
+    } catch (error) {
+      state.error = error.message
+      render()
+    }
   }
   if (action === 'refresh') {
     const id = state.current?.id
@@ -797,8 +1341,14 @@ document.addEventListener('click', async (event) => {
       state.current = link
       state.notice = link.message || ''
       state.busy = false
+      state.stalled = false
       render()
-      await settlePrivate(link)
+      if (link.status === 'preparing') watch(link.id, ++state.watchToken)
+      else await settlePrivate(link)
+      if (state.current?.visibility) {
+        state.projectsFor = ''
+        ensureProjects(state.current.visibility === 'all' ? 'all' : 'public')
+      }
       return
     } catch (error) {
       state.error = error.message
@@ -820,9 +1370,17 @@ document.addEventListener('change', (event) => {
     state.fillRepos = true
     state.projectsOpen = false
     state.projectsFor = ''
+    state.projectsLoadedFor = ''
+    state.projectNamesSeen = null
     ensureProjects(state.form.visibility)
   }
-  if (event.target.name === 'repo') updateCount()
+  if (event.target.name === 'repo') {
+    state.reposTouched = true
+    if (!event.target.checked) state.deselectedRepos.add(event.target.value)
+    else state.deselectedRepos.delete(event.target.value)
+    if (form) state.form = readEditor(form)
+    updateCount()
+  }
 })
 
 async function submitAuth(form) {
@@ -836,7 +1394,7 @@ async function submitAuth(form) {
   const email = String(data.get('email') || '').trim()
   const password = String(data.get('password') || '')
   const code = String(data.get('code') || '').trim()
-  if (form.id === 'auth-form' && password.length < 8) {
+  if (form.id === 'auth-form' && password.length < 15) {
     state.error = copy.auth.weakPassword
     render()
     return
@@ -845,6 +1403,7 @@ async function submitAuth(form) {
   state.error = ''
   render()
   try {
+    const { confirmSignIn, beginSignIn, logIn, clerkMessage } = await authModule()
     if (form.id === 'auth-code') {
       await confirmSignIn(key, code)
     } else if (parse(location.pathname).name === 'join') {
@@ -861,9 +1420,41 @@ async function submitAuth(form) {
     window.location.assign(safeNext() || '/')
   } catch (error) {
     state.busy = false
+    const { clerkMessage } = await authModule().catch(() => ({ clerkMessage: (e) => e?.message || copy.errors.generic }))
     state.error = clerkMessage(error)
     render()
   }
+}
+
+function paintPerson(resume, fields) {
+  if (!resume) return resume
+  const github = (resume.contact || []).find((item) => /^github\.com\//i.test(String(item)))
+  const contact = [fields.email, fields.location, github].filter(Boolean)
+  const lines = (value) => String(value || '').split(/\n+/).map((line) => line.trim()).filter(Boolean).slice(0, 6)
+  const edits = new Map((fields.work || state.current?.resume?.work || []).map((item) => [item.title, item.lines]))
+  const work = (resume.work || []).map((item) => {
+    const next = edits.get(item.title)
+    return Array.isArray(next) ? { ...item, lines: next } : item
+  })
+  return {
+    ...resume,
+    name: fields.displayName || resume.name || '',
+    headline: fields.headline || '',
+    contact,
+    education: lines(fields.education),
+    experience: lines(fields.experience),
+    work,
+  }
+}
+
+function personOnly(next, link) {
+  if (!next || !link) return false
+  const repos = [...new Set(next.repos || [])].join('\n')
+  const current = [...(link.selectedRepos || [])].join('\n')
+  return repos === current
+    && (next.visibility || 'public') === (link.visibility || 'public')
+    && (next.roleTarget || '') === (link.roleTarget || '')
+    && (next.instructions || '') === (link.instructions || '')
 }
 
 function rememberLocal(body) {
@@ -876,6 +1467,83 @@ function rememberLocal(body) {
   }
 }
 
+let personTimer = 0
+let rolePickTimer = 0
+
+function previewEditor(form) {
+  if (!state.current?.resume) return
+  const body = readEditor(form)
+  state.form = body
+  state.current = {
+    ...state.current,
+    displayName: body.displayName,
+    headline: body.headline,
+    email: body.email,
+    location: body.location,
+    education: body.education,
+    experience: body.experience,
+    resume: paintPerson(state.current.resume, body),
+  }
+  const slot = document.querySelector('#paper-slot')
+  if (slot && !state.editing) {
+    slot.innerHTML = paper(state.current.resume)
+    schedulePaperLayout()
+  }
+  const title = document.querySelector('.split > div > h1')
+  if (title) title.textContent = body.displayName || copy.name
+}
+
+function schedulePersonSave() {
+  const route = parse(location.pathname)
+  if (route.name !== 'detail' || !state.current) return
+  const form = document.querySelector('#editor')
+  if (!form) return
+  const body = readEditor(form)
+  if (!personOnly(body, state.current)) return
+  clearTimeout(personTimer)
+  personTimer = setTimeout(async () => {
+    try {
+      await api(`/api/links/${route.id}/person`, {
+        method: 'PATCH',
+        quiet: true,
+        body: { ...body, work: state.current.resume?.work || [] },
+      })
+    } catch {
+      // The page already shows the edit. A later save can try again.
+    }
+  }, 400)
+}
+
+document.addEventListener('input', (event) => {
+  const line = event.target.closest('[data-work-line]')
+  if (line && state.current?.resume) {
+    const title = line.getAttribute('data-work-title')
+    const index = Number(line.getAttribute('data-work-line'))
+    const item = (state.current.resume.work || []).find((entry) => entry.title === title)
+    if (item?.lines) item.lines[index] = line.value
+    schedulePersonSave()
+    return
+  }
+  const form = event.target.closest('#editor')
+  if (!form) return
+  const route = parse(location.pathname)
+  if (event.target.name === 'roleTarget' && (route.name === 'detail' || route.name === 'studio')) {
+    clearTimeout(rolePickTimer)
+    rolePickTimer = setTimeout(() => {
+      const body = readEditor(form)
+      const scope = body.visibility === 'all' ? 'all' : 'public'
+      const merged = mergeRoleRepos(scope, body.roleTarget, body.repos, { fillEmpty: false })
+      if (merged.join('\n') === (body.repos || []).join('\n')) return
+      state.form = { ...body, repos: merged }
+      render()
+    }, 350)
+    return
+  }
+  if (route.name !== 'detail') return
+  previewEditor(form)
+  schedulePersonSave()
+})
+
 document.addEventListener('submit', async (event) => {
   const form = event.target
   if (form.id === 'start-form') {
@@ -884,8 +1552,12 @@ document.addEventListener('submit', async (event) => {
       go(`/sign-in?next=${encodeURIComponent('/start')}`)
       return
     }
-    const visibility = new FormData(form).get('visibility') === 'all' ? 'all' : 'public'
-    window.location.href = `/api/auth/github?visibility=${visibility}`
+    window.location.href = '/api/auth/github?visibility=all'
+    return
+  }
+  if (form.id === 'guest-github-form') {
+    event.preventDefault()
+    window.location.href = '/api/auth/github?visibility=all'
     return
   }
   if (form.id === 'auth-form' || form.id === 'auth-code') {
@@ -896,15 +1568,46 @@ document.addEventListener('submit', async (event) => {
   if (form.id !== 'editor') return
   event.preventDefault()
   const body = readEditor(form)
+  const route = parse(location.pathname)
   state.form = body
-  state.busy = true
   state.error = ''
   state.notice = ''
+  if (route.name === 'detail' && personOnly(body, state.current)) {
+    const previous = state.current
+    state.current = {
+      ...previous,
+      displayName: body.displayName,
+      headline: body.headline,
+      email: body.email,
+      location: body.location,
+      education: body.education,
+      experience: body.experience,
+      resume: paintPerson(previous.resume, { ...body, work: previous.resume?.work }),
+    }
+    state.notice = copy.notice.saved
+    render()
+    try {
+      const saved = await api(`/api/links/${route.id}/person`, {
+        method: 'PATCH',
+        quiet: true,
+        body: { ...body, work: state.current.resume?.work || [] },
+      })
+      state.current = { ...state.current, ...saved }
+      rememberLocal(body)
+    } catch (error) {
+      state.current = previous
+      state.form = formFromLink(previous)
+      state.notice = ''
+      state.error = error.message
+    }
+    render()
+    return
+  }
+  state.busy = true
   render()
   try {
-    const route = parse(location.pathname)
     if (route.name === 'studio') {
-      const created = await api('/api/links', { method: 'POST', body })
+      const created = await api('/api/links', { method: 'POST', body, noRetry: true })
       rememberLocal(body)
       state.busy = false
       state.linksStamp = ''
@@ -930,6 +1633,30 @@ window.addEventListener('popstate', () => {
   state.authStep = 'details'
   state.error = ''
   render()
+})
+
+window.addEventListener('focus', () => {
+  if (!projectsLoadStuck()) return
+  state.projectsLoading = false
+  state.projectsLoadedFor = ''
+  maybeLoadProjects()
+})
+
+window.addEventListener('pageshow', (event) => {
+  if (!event.persisted) return
+  state.projectsLoadedFor = ''
+  refreshMe().then(() => {
+    render()
+    maybeLoadProjects()
+  })
+})
+
+let paperResizeTimer = 0
+window.addEventListener('resize', () => {
+  clearTimeout(paperResizeTimer)
+  paperResizeTimer = setTimeout(() => {
+    if (!state.editing) schedulePaperLayout()
+  }, 120)
 })
 
 boot()

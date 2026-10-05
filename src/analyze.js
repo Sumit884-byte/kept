@@ -9,7 +9,11 @@ export function plainWriting(value) {
     .replace(/<br\s*\/?>/gi, ' ')
     .replace(/<\/?[a-zA-Z][a-zA-Z0-9]*/g, ' ')
     .replace(/<[^>\n]{0,300}>/g, ' ')
-    .replace(/\b(?:align|src|alt|width|height|href|class|style)\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, ' ')
+    .split('\n')
+    .map((line) => line
+      .replace(/\b(?:align|srcset|src|alt|width|height|href|class|style|media)\s*=\s*(?:"[^"\n]*"|'[^'\n]*')/gi, ' ')
+      .replace(/\b(?:srcset|media|src|align|class|style|href|alt)\s*=.*/gi, ' '))
+    .join('\n')
     .replace(/[<>]/g, ' ')
     .replace(/(^|\s)\/+(?=\s|$)/g, ' ')
     .replace(/\b(?:src|alt|href|align|width|height|class|style)\s*…?\s*$/i, '')
@@ -172,9 +176,9 @@ export function buildConclusion({ name, description, readme, files, commits }) {
   if (described) sentences.push(purpose(name, described))
   else if (kind) sentences.push(`${name} is ${kind}.`)
   if (actions.length) sentences.push(`It handles ${joinAnd(actions)}.`)
-  else if (!described && !kind) sentences.push(`${name} has little written about it, so this comes from the project itself.`)
+  else if (!described && !kind && recent) sentences.push(`Recent work: ${recent}.`)
   if (manifest.command) sentences.push(`It can be started with the ${manifest.command} command.`)
-  if (recent) sentences.push(`Recent work: ${recent}.`)
+  if (recent && described) sentences.push(`Recent work: ${recent}.`)
   return {
     conclusion: sentences.join(' '),
     highlights: actions,
@@ -245,6 +249,7 @@ export function interpret(gathered) {
     name,
     url: repo.url || '',
     private: Boolean(repo.private),
+    fork: Boolean(repo.fork),
     language: repo.language || '',
     languages,
     skills,
@@ -284,6 +289,7 @@ export function interpret(gathered) {
         url: project.url,
         displayName: name,
         description: project.description,
+        fork: project.fork,
         latestRelease: numbers.latestRelease,
         windowComplete: numbers.complete,
       },

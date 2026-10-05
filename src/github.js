@@ -89,6 +89,10 @@ async function quiet(promise, fallback) {
   }
 }
 
+export function callbackUrl() {
+  return `${config.publicUrl}/github/auth/callback`
+}
+
 export async function exchangeCode(code) {
   const response = await fetch('https://github.com/login/oauth/access_token', {
     method: 'POST',
@@ -101,7 +105,7 @@ export async function exchangeCode(code) {
       client_id: config.githubClientId,
       client_secret: config.githubClientSecret,
       code,
-      redirect_uri: `${config.publicUrl}/github/auth/callback`,
+      redirect_uri: callbackUrl(),
     }),
   })
   const data = await response.json()
@@ -169,11 +173,13 @@ export async function listPulls(token, login) {
   })).filter((item) => item.title)
 }
 
+const MAX_REPO_PAGES = 4
+
 export async function listRepos(token, visibility) {
   const type = visibility === 'all' ? 'all' : 'public'
   const repos = []
   const seen = new Set()
-  for (let page = 1; page <= 50; page += 1) {
+  for (let page = 1; page <= MAX_REPO_PAGES; page += 1) {
     const response = await gh(token, `/user/repos?per_page=100&page=${page}&sort=full_name&direction=asc&type=${type}`)
     const batch = Array.isArray(response.data) ? response.data : []
     if (!batch.length) break
@@ -226,79 +232,49 @@ async function fileText(token, fullName, path) {
   return String(response.data || '').slice(0, 12000)
 }
 
-function sumWeeks(rows, valueIndex) {
-  const cutoff = Date.now() / 1000 - 90 * 86400
-  return (rows || [])
-    .filter((row) => Array.isArray(row) && row[0] >= cutoff)
-    .reduce((sum, row) => sum + Math.abs(Number(row[valueIndex]) || 0), 0)
-}
-
-function sumActivity(rows) {
-  const cutoff = Date.now() / 1000 - 90 * 86400
-  return (rows || [])
-    .filter((row) => row && row.week >= cutoff)
-    .reduce((sum, row) => sum + (Number(row.total) || 0), 0)
-}
-
 export async function gatherRepo(token, fullName, etag) {
   const repoRes = await gh(token, `/repos/${fullName}`, { etag })
   if (repoRes.notModified) return { notModified: true, etag: repoRes.etag }
   const repo = repoRes.data
-  const readmeRes = await optional(gh(token, `/repos/${fullName}/readme`, { raw: true }), { data: '' })
+  const since = new Date(Date.now() - 90 * 86400000).toISOString()
+  const [readmeRes, commitRes, releaseRes, languageRes] = await Promise.all([
+    optional(gh(token, `/repos/${fullName}/readme`, { raw: true }), { data: '' }),
+    optional(gh(token, `/repos/${fullName}/commits?since=${encodeURIComponent(since)}&per_page=30`), { data: [] }),
+    optional(gh(token, `/repos/${fullName}/releases?per_page=20`), { data: [] }),
+    optional(gh(token, `/repos/${fullName}/languages`), { data: {} }),
+  ])
   const readme = String(readmeRes.data || '')
-  const branch = repo.default_branch || 'HEAD'
-  const treeRes = await optional(gh(token, `/repos/${fullName}/git/trees/${encodeURIComponent(branch)}?recursive=1`), { data: { tree: [] } })
   const thin = assessReadme(readme).thin
-  const tree = treeRes.data?.tree || []
   let files = []
   let filePaths = []
-  if (repo.private) {
-    if (thin) filePaths = wantedFiles(tree, true).map((item) => item.path)
-  } else {
-    const chosen = wantedFiles(tree, thin)
-    for (const item of chosen) {
-      const text = await fileText(token, fullName, item.path)
-      if (text) files.push({ path: item.path, text })
+  if (thin) {
+    const branch = repo.default_branch || 'HEAD'
+    const treeRes = await optional(gh(token, `/repos/${fullName}/git/trees/${encodeURIComponent(branch)}?recursive=1`), { data: { tree: [] } })
+    const tree = treeRes.data?.tree || []
+    if (repo.private) {
+      filePaths = wantedFiles(tree, true).map((item) => item.path)
+    } else {
+      const chosen = wantedFiles(tree, true)
+      const loaded = await Promise.all(chosen.map(async (item) => {
+        const text = await fileText(token, fullName, item.path)
+        return text ? { path: item.path, text } : null
+      }))
+      files = loaded.filter(Boolean)
     }
   }
-  const since = new Date(Date.now() - 90 * 86400000).toISOString()
-  const commitRes = await optional(gh(token, `/repos/${fullName}/commits?since=${encodeURIComponent(since)}&per_page=30`), { data: [] })
   const commits = (commitRes.data || []).map((commit) => ({
     message: commit.commit?.message || '',
     date: commit.commit?.author?.date || '',
     additions: 0,
     deletions: 0,
   }))
-  const frequency = await quiet(gh(token, `/repos/${fullName}/stats/code_frequency`), { pending: true, data: null })
-  const activity = await quiet(gh(token, `/repos/${fullName}/stats/commit_activity`), { pending: true, data: null })
-  let window = null
-  if (!frequency.pending && Array.isArray(frequency.data) && !activity.pending && Array.isArray(activity.data)) {
-    window = {
-      additions: sumWeeks(frequency.data, 1),
-      deletions: sumWeeks(frequency.data, 2),
-      commits: sumActivity(activity.data),
-      complete: true,
-    }
-  } else {
-    let additions = 0
-    let deletions = 0
-    const sample = (commitRes.data || []).slice(0, 8)
-    for (const item of sample) {
-      if (!item.sha) continue
-      const full = await optional(gh(token, `/repos/${fullName}/commits/${item.sha}`), null)
-      additions += full?.data?.stats?.additions || 0
-      deletions += full?.data?.stats?.deletions || 0
-    }
-    if (sample.length) {
-      window = { additions, deletions, commits: sample.length, complete: false }
-    }
-  }
-  const releaseRes = await optional(gh(token, `/repos/${fullName}/releases?per_page=20`), { data: [] })
+  const window = commits.length
+    ? { additions: 0, deletions: 0, commits: commits.length, complete: false }
+    : null
   const cutoff = Date.now() - 90 * 86400000
   const releases = (releaseRes.data || [])
     .filter((release) => !release.draft && release.published_at && new Date(release.published_at).getTime() >= cutoff)
     .map((release) => ({ name: release.tag_name || release.name || '', publishedAt: release.published_at }))
-  const languageRes = await optional(gh(token, `/repos/${fullName}/languages`), { data: {} })
   const ranked = Object.entries(languageRes.data || {}).sort((a, b) => b[1] - a[1]).map(([name]) => name)
   const language = ranked[0] || repo.language || ''
   return {
@@ -310,6 +286,7 @@ export async function gatherRepo(token, fullName, etag) {
       name: repo.name,
       description: repo.description || '',
       private: Boolean(repo.private),
+      fork: Boolean(repo.fork),
       language,
       languages: ranked.slice(0, 5),
       url: repo.html_url,

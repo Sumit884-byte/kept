@@ -1,0 +1,41 @@
+{
+  "framework": null,
+  "installCommand": "",
+  "buildCommand": "cp src/copy.js src/public/copy.js && cp src/brief.js src/public/brief.js && cp src/projectKinds.js src/public/projectKinds.js && cp src/rolePick.js src/public/rolePick.js && cp src/display.js src/public/display.js",
+  "outputDirectory": "src/public",
+  "headers": [
+    {
+      "source": "/app.js",
+      "headers": [{ "key": "Cache-Control", "value": "no-cache, must-revalidate" }]
+    },
+    {
+      "source": "/styles.css",
+      "headers": [{ "key": "Cache-Control", "value": "no-cache, must-revalidate" }]
+    },
+    {
+      "source": "/paperPages.js",
+      "headers": [{ "key": "Cache-Control", "value": "no-cache, must-revalidate" }]
+    },
+    {
+      "source": "/favicon.svg",
+      "headers": [{ "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }]
+    },
+    {
+      "source": "/(.*\\.js)",
+      "headers": [{ "key": "Cache-Control", "value": "public, max-age=86400, stale-while-revalidate=604800" }]
+    }
+  ],
+  "functions": {
+    "api/server.js": {
+      "maxDuration": 60
+    }
+  },
+  "rewrites": [
+    { "source": "/github/auth/callback", "destination": "/api/github/callback" },
+    { "source": "/sample", "destination": "/api/example?format=redirect" },
+    { "source": "/example.pdf", "destination": "/api/example?format=pdf" },
+    { "source": "/r/keptsample", "destination": "/api/example?format=page" },
+    { "source": "/r/keptsample.pdf", "destination": "/api/example?format=pdf" },
+    { "source": "/(.*)", "destination": "/index.html" }
+  ]
+}

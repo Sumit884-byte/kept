@@ -1,6 +1,6 @@
 import { copy } from './copy.js'
 import { escapeHtml } from './escape.js'
-import { starLabel } from './resume.js'
+import { renderPaperHtml } from './paperHtml.js'
 
 function page({ title, body, statusNote }) {
   return `<!DOCTYPE html>
@@ -11,10 +11,11 @@ function page({ title, body, statusNote }) {
   <meta name="robots" content="noindex">
   <title>${escapeHtml(title)}</title>
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,560;9..144,640&family=Public+Sans:ital,wght@0,400;0,560;1,400&display=swap" rel="stylesheet">
+  <link rel="preload" href="/styles.css" as="style">
   <link rel="stylesheet" href="/styles.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,560;9..144,640&amp;family=Public+Sans:ital,wght@0,400;0,560;1,400&amp;display=swap" media="print" onload="this.media='all'">
+  <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,560;9..144,640&amp;family=Public+Sans:ital,wght@0,400;0,560;1,400&amp;display=swap"></noscript>
 </head>
 <body>
   <main class="public-main" id="main">
@@ -40,27 +41,17 @@ export function renderPublicPage(link) {
       body: `<h1>${escapeHtml(copy.public.preparing)}</h1><p>${escapeHtml(copy.public.tryAgain)}</p>`,
     })
   }
-  const contact = (resume.contact || []).map((item) => `<span>${escapeHtml(item)}</span>`).join('')
-  const work = (resume.work || []).map((item) => `
-    <section class="paper-role">
-      <h3>${escapeHtml(item.title)}${item.stars > 0 ? `<span class="star-count">${escapeHtml(starLabel(item.stars))}</span>` : ''}</h3>
-      ${item.url ? `<p class="paper-url">${escapeHtml(item.url)}</p>` : ''}
-      <ul>${(item.lines || []).map((line) => `<li>${escapeHtml(line)}</li>`).join('')}</ul>
-    </section>`).join('')
+  const paper = renderPaperHtml(resume, escapeHtml, { nameTag: 'h1' })
   return page({
     title: resume.name,
     statusNote: copy.public.stays,
     body: `
-      <article class="paper public-paper">
-        <h1 class="paper-name">${escapeHtml(resume.name)}</h1>
-        ${contact ? `<p class="paper-contact">${contact}</p>` : ''}
-        ${resume.headline ? `<p class="paper-line">${escapeHtml(resume.headline)}</p>` : ''}
-        ${resume.summary ? `<p class="paper-summary">${escapeHtml(resume.summary)}</p>` : ''}
-        ${(resume.education || []).length ? `<h2>${escapeHtml(copy.pdf.education)}</h2><ul class="paper-education">${resume.education.map((line) => `<li>${escapeHtml(line)}</li>`).join('')}</ul>` : ''}
-        ${resume.skills?.length ? `<h2>${escapeHtml(copy.pdf.skills)}</h2><p class="paper-skills">${escapeHtml(resume.skills.join(', '))}</p>` : ''}
-        ${work ? `<h2>${escapeHtml(copy.pdf.selectedWork)}</h2>${work}` : ''}
-        ${(resume.contributions || []).length ? `<h2>${escapeHtml(copy.pdf.contributions)}</h2>${(resume.contributions || []).map((item) => `<section class="paper-role"><h3>${escapeHtml(item.title || '')}</h3>${item.url ? `<p class="paper-url">${escapeHtml(item.url)}</p>` : ''}<ul><li>${escapeHtml(item.line)}</li></ul></section>`).join('')}` : ''}
-      </article>
-      <p class="public-actions"><a class="button" href="/r/${escapeHtml(link.slug)}.pdf">${escapeHtml(copy.public.open)}</a></p>`,
+      <div class="paper-column public-paper-wrap">
+        <div class="paper-tools public-paper-tools">
+          <a class="icon-button" href="/r/${escapeHtml(link.slug)}.pdf" download aria-label="${escapeHtml(copy.public.download)}" title="${escapeHtml(copy.public.download)}"><svg class="icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg></a>
+        </div>
+      ${paper.replace('class="paper paper-classic"', 'class="paper paper-classic public-paper"')}
+      </div>
+      <p class="public-actions"><a class="button" href="/r/${escapeHtml(link.slug)}.pdf" target="_blank" rel="noopener">${escapeHtml(copy.public.open)}</a></p>`,
   })
 }

@@ -1,0 +1,98 @@
+[
+  {
+    "step": "home",
+    "path": "/",
+    "h1": "Send one link. It still tells the truth later.",
+    "paper": "Mira Chen",
+    "issues": [],
+    "errors": []
+  },
+  {
+    "step": "sample",
+    "path": "/r/keptsample",
+    "h1": "Mira Chen",
+    "paper": "Mira Chen",
+    "issues": [],
+    "errors": []
+  },
+  {
+    "step": "home-again",
+    "path": "/",
+    "h1": "Send one link. It still tells the truth later.",
+    "paper": "Mira Chen",
+    "issues": [],
+    "errors": []
+  },
+  {
+    "step": "guest-studio",
+    "path": "/studio",
+    "h1": "Shape this version",
+    "paper": "",
+    "issues": [],
+    "errors": []
+  },
+  {
+    "step": "spa-links",
+    "path": "/links",
+    "h1": "Your links",
+    "paper": "",
+    "issues": [],
+    "errors": []
+  },
+  {
+    "step": "spa-studio",
+    "path": "/studio",
+    "h1": "Shape this version",
+    "paper": "",
+    "issues": [],
+    "errors": []
+  },
+  {
+    "step": "start",
+    "path": "/start",
+    "h1": "Connect your work",
+    "paper": "",
+    "issues": [],
+    "errors": []
+  },
+  {
+    "step": "leave-guest",
+    "path": "/",
+    "h1": "Send one link. It still tells the truth later.",
+    "paper": "Mira Chen",
+    "issues": [],
+    "errors": []
+  },
+  {
+    "step": "sign-in",
+    "path": "/sign-in",
+    "h1": "Log in",
+    "paper": "",
+    "issues": [],
+    "errors": []
+  },
+  {
+    "step": "guard-studio",
+    "path": "/sign-in?next=%2Fstudio",
+    "h1": "Log in",
+    "paper": "",
+    "issues": [],
+    "errors": []
+  },
+  {
+    "step": "missing",
+    "path": "/nope",
+    "h1": "This page does not exist.",
+    "paper": "",
+    "issues": [],
+    "errors": []
+  },
+  {
+    "step": "home-logo",
+    "path": "/",
+    "h1": "Send one link. It still tells the truth later.",
+    "paper": "Mira Chen",
+    "issues": [],
+    "errors": []
+  }
+]

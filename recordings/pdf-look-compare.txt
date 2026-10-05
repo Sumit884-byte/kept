@@ -1,0 +1,21 @@
+Classic resume template — before / after (1440×900)
+
+PDF export
+  Before (PDFKit):     recordings/pdf-look-before.png
+  After (react-pdf):   recordings/pdf-look-after.png
+  Regenerate after:    npm run pdf:preview
+
+HTML preview (sample resume on screen)
+  Before (plain paper): recordings/layout-sample-before.png
+  After (classic):      recordings/layout-sample-after.png
+  Regenerate after:    npm run html:preview
+
+Landing hero (1440×900)
+  Before: recordings/hero-landing-before.png
+  After:  recordings/hero-landing-after.png
+  Regenerate after: npm run hero:preview
+
+Sources
+  PDF:  src/resumeTemplateClassic.js → src/resumePdf.js
+  HTML: src/public/paperHtml.js + styles (.paper-classic)
+  Hero: src/public/styles.css (.hero-stage), paperPages classic split

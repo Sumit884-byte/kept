@@ -1,8 +1,13 @@
 import { plainWriting } from './analyze.js'
 import { copy } from './copy.js'
+import { isProfileReadmeProject } from './projectKinds.js'
 import { attentionSentence, joinList } from './phrases.js'
 import { briefTokens, containsPhrase, neverPhrases, wantsFirstPerson } from './brief.js'
 import { skillsFor } from './skills.js'
+
+export function experienceLines(value) {
+  return educationLines(value)
+}
 
 export function educationLines(value) {
   return String(value || '')
@@ -62,11 +67,17 @@ export function finishSections(resume, projects, prefs = {}) {
     role,
     profileText: prefs.profileText || '',
   }).filter((skill) => !containsPhrase(skill, banned))
-  const contributions = contributionsForRole(used.length ? used : projects, prefs.pulls, role)
+  const forks = forkEntries(projects)
     .filter((item) => !containsPhrase(item.line, banned) && !containsPhrase(item.title, banned))
+  const contributions = [...forks, ...contributionsForRole(used.length ? used : projects, prefs.pulls, role)]
+    .filter((item) => !containsPhrase(item.line, banned) && !containsPhrase(item.title, banned))
+    .filter((item, index, list) => list.findIndex((other) => other.title === item.title && other.line === item.line) === index)
+    .slice(0, 6)
   const education = educationLines(prefs.education ?? resume.education)
     .filter((line) => !containsPhrase(line, banned))
-  return { ...resume, skills, contributions, education }
+  const experience = experienceLines(prefs.experience ?? resume.experience)
+    .filter((line) => !containsPhrase(line, banned))
+  return { ...resume, skills, contributions, education, experience }
 }
 
 function trimText(text, max) {
@@ -110,18 +121,56 @@ function statedLine(project) {
   return ''
 }
 
-function readableLine(text) {
+const UNUSED_LINE = /has little written about it|created by leap|leap\.new|create-next-app|code bundle for|original project is available|this is a next\.js project bootstrapped/i
+const INSTRUCTION = /\b(npm|pnpm|yarn|npx|pip)\b|install the dependencies|running the code|development server|click the|speak your message|^\d+\.\s|^(click|run|open|install|clone|download)\b/i
+const SOCIAL_CHAIN = /\b(portfolio|linkedin|dev\.to|substack|x\/twitter)\b/i
+
+function trimBioSpam(text) {
+  let clean = String(text || '').trim()
+  if (!clean) return ''
+  if (SOCIAL_CHAIN.test(clean) || (clean.match(/·/g) || []).length >= 2) {
+    clean = clean.split(/\bPortfolio\b|\bLinkedIn\b|·/i)[0].trim()
+  }
+  const sentence = clean.split(/(?<=[.!?])\s+/)[0] || clean
+  return sentence.length > 220 ? `${sentence.slice(0, 217).trim()}…` : sentence
+}
+
+export function readableLine(text) {
   const raw = String(text || '')
-  const clean = plainWriting(raw)
-  if (!clean || /[<>]|align\s*=|src\s*=/i.test(clean)) return ''
+  let clean = plainWriting(raw)
+    .replace(/\s+\d+\.\s+.*$/, '')
+    .replace(/\b(running the code|run npm|first,?\s+run|click the|speak your).*/i, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+  if (!clean || UNUSED_LINE.test(clean) || INSTRUCTION.test(clean)) return ''
+  if (/[<>]|align\s*=|src(?:set)?\s*=|media\s*=|prefers-color-scheme/i.test(clean)) return ''
   if (/<[a-z!/]/i.test(raw) && clean.split(' ').filter(Boolean).length < 6) return ''
   if (/^(the latest \d+ updates|over the last three months|about [\d,]+ lines (added|removed)|[\d,]+ lines (added|removed)|\d+ releases? shipped)\b/i.test(clean)) return ''
+  if (/^github profile readme\b/i.test(clean)) return ''
+  clean = trimBioSpam(clean)
   return clean
 }
 
 export function starLabel(count) {
   const n = Math.max(0, Math.round(Number(count) || 0))
   return `${n.toLocaleString('en-US')} ${n === 1 ? 'star' : 'stars'}`
+}
+
+export function placeForks(resume, projects) {
+  const forks = new Map(forkEntries(projects).map((item) => [String(item.title || '').toLowerCase(), item]))
+  if (!resume || !forks.size) return resume
+  const work = []
+  const moved = []
+  for (const item of resume.work || []) {
+    const fork = forks.get(String(item.title || '').toLowerCase())
+    if (fork) moved.push(fork)
+    else work.push(item)
+  }
+  const contributions = [
+    ...moved,
+    ...(resume.contributions || []).filter((item) => !forks.has(String(item.title || '').toLowerCase())),
+  ]
+  return { ...resume, work, contributions }
 }
 
 export function withSkills(resume, projects, prefs = {}) {
@@ -206,13 +255,27 @@ export function readableResume(resume) {
       ...item,
       lines: uniqueLines((item.lines || []).map(readableLine).filter(Boolean), item.title),
     }))
-    .filter((item) => item.lines.length)
+    .filter((item) => item.title)
   const summary = readableLine(resume.summary)
   return {
     ...resume,
     work,
     summary: summary || resume.summary || '',
   }
+}
+
+export function forkEntries(projects) {
+  return (projects || []).filter((project) => project.fork).slice(0, 4).map((project) => {
+    const commit = (project.contributions || []).map((line) => readableLine(line)).find(Boolean)
+    const description = readableLine(project.description)
+    return {
+      title: project.name,
+      line: commit || description || 'Contributed to this project.',
+      url: project.private ? '' : String(project.url || '').replace(/^https?:\/\//, ''),
+      outside: true,
+      fork: true,
+    }
+  })
 }
 
 export function bulletsFor(project) {
@@ -237,8 +300,9 @@ function summaryFor(person, projects, prefs) {
     return [aim, `My recent projects include ${names}.`].filter(Boolean).join(' ')
   }
   if (role) {
-    const line = (prefs.headline || '').trim()
+    const line = (prefs.headline || prefs.roleTarget || '').trim()
     if (line && line.toLowerCase() === role.toLowerCase()) return `Recent projects include ${names}.`
+    if (line) return `Recent projects include ${names}.`
     return `${role}. Recent projects include ${names}.`
   }
   if (person.bio) return trimText(person.bio, 320)
@@ -261,23 +325,26 @@ export function applyBrief(resume, prefs = {}) {
   if (containsPhrase(headline, banned)) headline = ''
   const next = { ...resume, work, skills, summary, headline }
   if (!next.work.length) {
-    next.summary = copy.pdf.nothingToShow
+    next.summary = banned.length ? copy.pdf.nothingToShow : (prefs.roleTarget ? copy.pdf.noneFit : next.summary)
     return next
   }
   if (!next.summary) {
     const names = joinList(next.work.map((item) => item.title))
     const role = (prefs.roleTarget || '').trim()
-    const line = (prefs.headline || '').trim()
+    const line = (prefs.headline || prefs.roleTarget || '').trim()
     if (wantsFirstPerson(prefs.instructions) && role) next.summary = `I'm aiming at ${role} roles. My recent projects include ${names}.`
     else if (wantsFirstPerson(prefs.instructions)) next.summary = `My recent projects include ${names}.`
-    else if (role && line.toLowerCase() !== role.toLowerCase()) next.summary = `${role}. Recent projects include ${names}.`
+    else if (role && line && line.toLowerCase() !== role.toLowerCase()) next.summary = `${role}. Recent projects include ${names}.`
     else next.summary = `Recent projects include ${names}.`
   }
   return next
 }
 
 export function composeResume({ person, projects, prefs }) {
-  const chosen = orderedProjects(projects, prefs)
+  const chosen = orderedProjects(
+    (projects || []).filter((project) => !project.fork && !isProfileReadmeProject(project)),
+    prefs,
+  )
   const work = chosen.map((project) => ({
     title: project.name,
     url: project.private ? '' : String(project.url || '').replace(/^https?:\/\//, ''),
@@ -295,5 +362,5 @@ export function composeResume({ person, projects, prefs }) {
     skills: [],
     example: Boolean(person.example),
   }, prefs)
-  return finishSections(draft, chosen, prefs)
+  return finishSections(draft, projects, prefs)
 }

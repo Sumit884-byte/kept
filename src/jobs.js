@@ -7,9 +7,23 @@ import { interpret } from './analyze.js'
 import { cleanConclusion } from './public/gemmaText.js'
 import { composeResume } from './resume.js'
 import { tailorResume } from './tailor.js'
-import { findSample } from './sample.js'
+import { findSample, samplePerson } from './sample.js'
 
 const inflight = new Map()
+
+async function mapLimit(items, limit, task) {
+  const results = new Array(items.length)
+  let cursor = 0
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (cursor < items.length) {
+      const index = cursor
+      cursor += 1
+      results[index] = await task(items[index])
+    }
+  })
+  await Promise.all(workers)
+  return results
+}
 
 function humanError(error) {
   if (error instanceof GithubError) {
@@ -28,15 +42,25 @@ async function personNotes(account) {
   if (!account.token_ciphertext || !account.login) return { profileText: account.profile_readme || '', pulls: [] }
   try {
     const token = decrypt(account.token_ciphertext)
-    const readme = await profileReadme(token, account.login)
+    const [readme, pulls] = await Promise.all([
+      profileReadme(token, account.login).catch(() => ''),
+      listPulls(token, account.login).catch(() => []),
+    ])
     const profileText = readme || account.profile_readme || ''
     if (readme && readme !== account.profile_readme) await db.setProfileReadme(account.id, readme)
-    const pulls = await listPulls(token, account.login)
     return { profileText, pulls }
   } catch (error) {
     console.error('profile notes failed', error.message)
     return { profileText: account.profile_readme || '', pulls: [] }
   }
+}
+
+async function saveGathered(id, account, reason) {
+  const fresh = await db.getLink(id)
+  if (!fresh) return
+  const projects = await db.loadContext(fresh)
+  if (!projects.length) return
+  await writeResume(fresh, account, projects, reason)
 }
 
 async function writeResume(link, account, projects, reason) {
@@ -54,6 +78,7 @@ async function writeResume(link, account, projects, reason) {
     instructions: link.instructions || '',
     headline: link.headline || '',
     education: link.education || '',
+    experience: link.experience || '',
     profileText: notes.profileText,
     pulls: notes.pulls,
   }
@@ -131,7 +156,7 @@ async function refreshGithub(link, account, fullName, watched, mode) {
   await db.insertSignal({ time: now, linkId: link.id, fullName, signal: interpreted.signal })
   await db.insertReading({ time: now, linkId: link.id, fullName, reading: interpreted.reading })
   let hookId = watched?.hook_id || null
-  if (account.can_read_private && !hookId) {
+  if (link.visibility === 'all' && account.can_read_private && !hookId) {
     try {
       hookId = await ensureHook(token, fullName)
     } catch (error) {
@@ -152,7 +177,7 @@ async function runRefresh(id, opts) {
   if (!link) return { changed: false }
   const account = await db.getAccount(link.account_id)
   if (!account) return { changed: false }
-  if (mode === 'check' && opts.respectPoll && link.last_polled_at) {
+  if (mode === 'check' && opts.respectPoll && link.last_polled_at && link.status !== 'preparing') {
     const age = Date.now() - new Date(link.last_polled_at).getTime()
     if (age < config.pollMs) return { changed: false, skipped: true }
   }
@@ -167,31 +192,49 @@ async function runRefresh(id, opts) {
     }
 
     const watched = await db.watchedMap(link.id)
-    let changed = false
-    const failures = []
-    for (const fullName of link.selected_repos || []) {
+    const repos = link.selected_repos || []
+    let finished = 0
+    let wroteCount = 0
+    let saving = Promise.resolve()
+    const reason = opts.reason || copy.reasons.first
+    function noteProgress(wrote) {
+      finished += 1
+      if (wrote) wroteCount += 1
+      if (!wroteCount || (wroteCount !== 1 && finished % 8 !== 0)) return
+      saving = saving.then(() => saveGathered(id, account, reason)).catch((error) => {
+        console.error('resume save failed', error.message)
+      })
+    }
+    const outcomes = await mapLimit(repos, 4, async (fullName) => {
       try {
         const wrote = account.preview
           ? await refreshSample(link, fullName, mode)
           : await refreshGithub(link, account, fullName, watched.get(fullName), mode)
-        if (wrote) changed = true
+        noteProgress(wrote)
+        return { wrote }
       } catch (error) {
-        failures.push(error)
         console.error('project refresh failed', error.status || error.message)
+        noteProgress(false)
+        return { error }
       }
-    }
+    })
+    await saving
+    const failures = outcomes.filter((item) => item.error).map((item) => item.error)
+    const wroteNew = outcomes.some((item) => item.wrote)
     if ((link.selected_repos || []).length && failures.length === link.selected_repos.length) throw failures[0]
-    if (!changed) return { changed: false }
     const fresh = await db.getLink(id)
     const projects = await db.loadContext(fresh)
-    if (!projects.length) {
-      await db.setError(id, copy.errors.nothingYet)
-      return { changed: false }
+    const needsWrite = !fresh?.resume || fresh.status === 'preparing'
+    if (projects.length && (wroteNew || needsWrite)) {
+      await writeResume(fresh, account, projects, reason)
+      if (failures.length) await db.setError(id, copy.errors.partial)
+      return { changed: true }
     }
-    const reason = opts.reason || copy.reasons.first
-    await writeResume(fresh, account, projects, reason)
-    if (failures.length) await db.setError(id, copy.errors.partial)
-    return { changed: true }
+    if (needsWrite && !projects.length) {
+      await db.setError(id, copy.errors.nothingYet)
+      return { changed: false, error: true }
+    }
+    return { changed: false }
   } catch (error) {
     console.error('refresh failed', error.message)
     await db.setError(id, humanError(error))

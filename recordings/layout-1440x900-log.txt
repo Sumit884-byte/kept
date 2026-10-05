@@ -1,0 +1,5 @@
+Viewport 1440x900
+Base https://kept-virid-two.vercel.app
+Wrote /Users/sumitmishra/dev/smart_resume/recordings/layout-1440x900-sample-page.png
+Wrote /Users/sumitmishra/dev/smart_resume/recordings/layout-1440x900-sample.pdf
+Wrote /Users/sumitmishra/dev/smart_resume/recordings/layout-1440x900-after-open-pdf.png (PDF pages from "Open the PDF" link)

@@ -1,7 +1,23 @@
 import { config } from './config.js'
-import { briefTokens } from './brief.js'
+import { isProfileReadmeProject } from './projectKinds.js'
+import {
+  MAX_PUBLIC,
+  namesFromDescriptions,
+  namesFromTerms,
+  publicNamesForRole,
+  roleTerms,
+  termsFromBreakdown,
+} from './rolePick.js'
 import { applyBrief, finishSections } from './resume.js'
 import { skillsFor } from './skills.js'
+
+export {
+  namesFromDescriptions,
+  namesFromTerms,
+  publicNamesForRole,
+  roleTerms,
+  termsFromBreakdown,
+} from './rolePick.js'
 
 function factBlob(project) {
   return JSON.stringify({
@@ -59,47 +75,7 @@ export function mergeTailored(original, model, projects) {
   }
 }
 
-function aboutText(project) {
-  return [project.description, project.conclusion, ...(project.highlights || [])]
-    .map((part) => String(part || '').replace(/\s+/g, ' ').trim())
-    .filter(Boolean)
-    .join(' ')
-}
-
-function slimProject(project) {
-  const about = aboutText(project)
-  return {
-    name: project.name,
-    about: about.length > 500 ? `${about.slice(0, 500).trim()}…` : about,
-    language: project.language || '',
-  }
-}
-
-export function publicNamesForRole(projects, names) {
-  const allowed = new Map(
-    (projects || [])
-      .filter((project) => !project.private)
-      .map((project) => [String(project.name).toLowerCase(), project.name]),
-  )
-  const picked = []
-  for (const name of names || []) {
-    const exact = allowed.get(String(name).trim().toLowerCase())
-    if (exact && !picked.includes(exact)) picked.push(exact)
-  }
-  return picked
-}
-
-export function namesFromDescriptions(projects, role) {
-  const needles = briefTokens(role)
-  const publicProjects = (projects || []).filter((project) => !project.private)
-  if (!needles.length) return publicProjects.map((project) => project.name)
-  return publicProjects
-    .filter((project) => {
-      const hay = `${project.name} ${aboutText(project)}`.toLowerCase()
-      return needles.some((needle) => hay.includes(needle))
-    })
-    .map((project) => project.name)
-}
+const MIN_PUBLIC = 3
 
 export function resumeWithSelection(resume, projects, names) {
   const picked = publicNamesForRole(projects, names)
@@ -122,16 +98,25 @@ export function resumeWithSelection(resume, projects, names) {
 }
 
 export function projectsForRemote(projects) {
-  return (projects || []).filter((project) => !project.private)
+  return (projects || []).filter((project) => !project.private && !isProfileReadmeProject(project))
 }
 
-export function roleChoiceRequest(projects, role) {
+function boostRoleMatches(names, shareable, role) {
+  const picked = [...names]
+  if (!picked.length || picked.length >= MIN_PUBLIC) return picked
+  for (const name of namesFromDescriptions(shareable, role)) {
+    if (picked.length >= MIN_PUBLIC) break
+    if (!picked.includes(name)) picked.push(name)
+  }
+  return picked.slice(0, MAX_PUBLIC)
+}
+
+export function roleBreakdownRequest(role) {
   const system = [
-    'You choose which projects belong on a resume for one role.',
-    'Decide from each project name and its full about, not from the title alone.',
-    'Do not rewrite the about, and do not invent projects.',
-    'Return JSON with one key, projects, an array of project names copied exactly from the list.',
-    'Include a project only when that about fits the role. Order them by fit.',
+    'Break one job role into the skills and tech stacks a resume should show.',
+    'Return JSON with two keys, skills and stacks.',
+    'Each is an array of short phrases people write in project descriptions.',
+    'Do not list projects.',
   ].join(' ')
   return {
     model: config.llmModel,
@@ -140,19 +125,19 @@ export function roleChoiceRequest(projects, role) {
     response_format: { type: 'json_object' },
     messages: [
       { role: 'system', content: system },
-      { role: 'user', content: JSON.stringify({ role, projects: projects.map(slimProject) }) },
+      { role: 'user', content: JSON.stringify({ role }) },
     ],
   }
 }
 
-async function namesFromModel(shareable, role, fetchImpl) {
+async function termsFromModel(role, fetchImpl) {
   const headers = { 'Content-Type': 'application/json' }
   if (config.llmKey) headers.Authorization = `Bearer ${config.llmKey}`
   const response = await fetchImpl(`${config.llmBase}/chat/completions`, {
     method: 'POST',
     headers,
-    body: JSON.stringify(roleChoiceRequest(shareable, role)),
-    signal: AbortSignal.timeout(90000),
+    body: JSON.stringify(roleBreakdownRequest(role)),
+    signal: AbortSignal.timeout(8000),
   })
   if (!response.ok) return []
   const payload = await response.json()
@@ -160,23 +145,31 @@ async function namesFromModel(shareable, role, fetchImpl) {
     .replace(/^```(?:json)?/i, '')
     .replace(/```$/i, '')
     .trim()
-  const model = JSON.parse(text)
-  return publicNamesForRole(shareable, model?.projects)
+  return termsFromBreakdown(JSON.parse(text))
 }
 
 export async function tailorResume(resume, projects, prefs, fetchImpl = fetch) {
   const role = String(prefs.roleTarget || '').trim()
   if (!role) return finishSections(applyBrief(resume, prefs), projects, prefs)
   const shareable = projectsForRemote(projects)
-  let names = []
+  let terms = []
   if (config.llmBase && shareable.length) {
     try {
-      names = await namesFromModel(shareable, role, fetchImpl)
+      terms = await termsFromModel(role, fetchImpl)
     } catch {
-      names = []
+      terms = []
     }
   }
+  let names = terms.length ? namesFromTerms(shareable, terms) : []
   if (!names.length) names = namesFromDescriptions(shareable, role)
-  if (!names.length && !shareable.length) return finishSections(applyBrief(resume, prefs), projects, prefs)
-  return finishSections(applyBrief(resumeWithSelection(resume, projects, names), prefs), projects, prefs)
+  names = boostRoleMatches(names, shareable, role)
+  if (!names.length && shareable.length > MAX_PUBLIC) {
+    return finishSections(applyBrief({ ...resume, work: [], summary: '' }, prefs), projects, prefs)
+  }
+  if (!names.length) names = shareable.map((project) => project.name).slice(0, MAX_PUBLIC)
+  if (!names.length) {
+    return finishSections(applyBrief({ ...resume, work: [], summary: '' }, prefs), projects, prefs)
+  }
+  const drafted = resumeWithSelection(resume, projects, names)
+  return finishSections(applyBrief(drafted, prefs), projects, prefs)
 }

@@ -8,12 +8,21 @@ const { Pool } = pg
 let pool
 export const features = { timescale: false }
 
+function connectionString(url) {
+  const local = /localhost|127\.0\.0\.1/.test(url)
+  if (local) return url
+  const parsed = new URL(url)
+  parsed.searchParams.set('uselibpqcompat', 'true')
+  if (!parsed.searchParams.get('sslmode')) parsed.searchParams.set('sslmode', 'require')
+  return parsed.toString()
+}
+
 export function getPool() {
   if (!pool) {
     const url = config.tigerUrl
     const local = /localhost|127\.0\.0\.1/.test(url)
     pool = new Pool({
-      connectionString: url,
+      connectionString: connectionString(url),
       max: config.poolMax,
       application_name: 'kept',
       ssl: local ? false : { rejectUnauthorized: false },
@@ -83,7 +92,6 @@ export async function migrate() {
   await query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS clerk_user_id TEXT`)
   await query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS profile_readme TEXT`)
   await query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS headline TEXT`)
-  await query(`ALTER TABLE links ADD COLUMN IF NOT EXISTS education TEXT`)
   await query(`CREATE UNIQUE INDEX IF NOT EXISTS accounts_clerk_user ON accounts (clerk_user_id)`)
   await query(`
     CREATE TABLE IF NOT EXISTS sessions (
@@ -114,6 +122,8 @@ export async function migrate() {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
   `)
+  await query(`ALTER TABLE links ADD COLUMN IF NOT EXISTS education TEXT`)
+  await query(`ALTER TABLE links ADD COLUMN IF NOT EXISTS experience TEXT`)
   await query(`
     CREATE TABLE IF NOT EXISTS watched_repos (
       link_id UUID NOT NULL REFERENCES links(id) ON DELETE CASCADE,
@@ -331,8 +341,8 @@ export async function createLink(accountId, fields) {
     try {
       const result = await query(
         `INSERT INTO links (
-          id, account_id, slug, visibility, display_name, headline, email, location, role_target, instructions, education, selected_repos, status
-        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'preparing')
+          id, account_id, slug, visibility, display_name, headline, email, location, role_target, instructions, education, experience, selected_repos, status
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'preparing')
         RETURNING *`,
         [
           crypto.randomUUID(),
@@ -346,6 +356,7 @@ export async function createLink(accountId, fields) {
           fields.roleTarget || '',
           fields.instructions || '',
           fields.education || '',
+          fields.experience || '',
           fields.repos,
         ],
       )
@@ -367,6 +378,7 @@ export async function updateLink(id, accountId, fields) {
     roleTarget: 'role_target',
     instructions: 'instructions',
     education: 'education',
+    experience: 'experience',
     selectedRepos: 'selected_repos',
     status: 'status',
   }
@@ -578,6 +590,7 @@ function projectFrom(reading, signal) {
     name: detail.displayName || reading.full_name.split('/').at(-1),
     url: detail.url || '',
     private: Boolean(detail.private),
+    fork: Boolean(detail.fork),
     language: signal?.primary_language || '',
     languages: Array.isArray(detail.languages) ? detail.languages : [],
     skills: Array.isArray(detail.skills) ? detail.skills : [],

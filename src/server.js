@@ -3,14 +3,16 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 import express from 'express'
 import { config, assertConfig } from './config.js'
 import { copy } from './copy.js'
+import { isProfileReadmeRepo } from './projectKinds.js'
 import { encrypt, decrypt, signPayload, readPayload } from './cryptoBox.js'
 import * as db from './db.js'
 import * as github from './github.js'
 import { GithubError, verifyGithubSignature } from './github.js'
 import { applyLocalReadings, refreshLink } from './jobs.js'
 import { exampleResume } from './example.js'
+import { accountFromRequest, createGuestSession, endKeptSession, savePerson, signedInAccount } from './fastRoutes.js'
 import { renderPdf, fileName } from './pdf.js'
-import { readableResume, starLabel, withSkills, withStars } from './resume.js'
+import { placeForks, readableResume, starLabel, withSkills, withStars } from './resume.js'
 import { renderPublicPage } from './publicPage.js'
 import { cleanConclusion } from './public/gemmaText.js'
 import { listSampleProjects, samplePerson } from './sample.js'
@@ -27,6 +29,7 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-
 const REPO = /^[\w.-]+\/[\w.-]+$/
 const deliveries = new Set()
 const SAMPLE_GITHUB_ID = 'preview:sample'
+const STATIC_EXAMPLE_SLUG = 'keptsample'
 let sampleLinkPromise = null
 
 class HttpError extends Error {
@@ -130,8 +133,8 @@ async function ensureClerkAccount(userId) {
 async function accountFrom(req) {
   if (clerkOn()) {
     try {
-      const { userId } = getAuth(req)
-      if (userId) return ensureClerkAccount(userId)
+      const account = await signedInAccount(req)
+      if (account) return account
     } catch (error) {
       console.error('sign-in lookup failed', error.message)
     }
@@ -164,11 +167,12 @@ function presentAccount(account) {
 
 async function dressResume(link, projects) {
   const account = link.account_id ? await db.getAccount(link.account_id) : null
-  return withSkills(withStars(readableResume(link.resume), projects), projects, {
+  return withSkills(withStars(placeForks(readableResume(link.resume), projects), projects), projects, {
     roleTarget: link.role_target || '',
     instructions: link.instructions || '',
     profileText: account?.profile_readme || '',
     education: link.education || '',
+    experience: link.experience || '',
   })
 }
 
@@ -191,6 +195,7 @@ async function presentLink(link) {
     email: link.email || '',
     location: link.location || '',
     education: link.education || '',
+    experience: link.experience || '',
     roleTarget: link.role_target || '',
     instructions: link.instructions || '',
     selectedRepos: link.selected_repos || [],
@@ -237,8 +242,9 @@ function cleanFields(body) {
   }
   const visibility = body.visibility === 'all' ? 'all' : 'public'
   const repos = Array.isArray(body.repos) ? body.repos.map((repo) => String(repo)) : []
-  if (!repos.length) throw new HttpError(400, copy.errors.chooseProjects)
-  if (repos.some((repo) => !REPO.test(repo))) throw new HttpError(400, copy.errors.notOnList)
+  const picked = [...new Set(repos.filter((repo) => !isProfileReadmeRepo(repo)))]
+  if (!picked.length) throw new HttpError(400, copy.errors.chooseProjects)
+  if (picked.some((repo) => !REPO.test(repo))) throw new HttpError(400, copy.errors.notOnList)
   return {
     visibility,
     displayName: String(body.displayName || '').trim().slice(0, 120),
@@ -246,9 +252,10 @@ function cleanFields(body) {
     email,
     location: String(body.location || '').trim().slice(0, 120),
     education: String(body.education || '').trim().slice(0, 1200),
+    experience: String(body.experience || '').trim().slice(0, 1200),
     roleTarget: String(body.roleTarget || '').trim().slice(0, 160),
     instructions: instructions.trim(),
-    repos: [...new Set(repos)],
+    repos: picked,
   }
 }
 
@@ -346,10 +353,14 @@ export function buildApp() {
   }))
 
   if (clerkOn()) {
-    app.use(clerkMiddleware({
+    const clerkOptions = {
       secretKey: config.clerkSecretKey,
       publishableKey: config.clerkPublishableKey,
-    }))
+    }
+    if (config.clerkPublishableKey.startsWith('pk_live_')) {
+      clerkOptions.proxyUrl = `${config.publicUrl}/__clerk`
+    }
+    app.use(clerkMiddleware(clerkOptions))
   }
 
   app.use(express.json({ limit: '200kb' }))
@@ -387,7 +398,7 @@ export function buildApp() {
     }
     res.json({
       account: account ? presentAccount(account) : null,
-      practice: !config.isProd,
+      guest: true,
       githubReady: Boolean(config.githubClientId && config.githubClientSecret),
       signInReady: clerkOn(),
       publishableKey: clerkOn() ? config.clerkPublishableKey : '',
@@ -405,13 +416,13 @@ export function buildApp() {
     if (!allow(`auth:${clientIp(req)}`, 20, 60_000)) {
       return res.status(429).json({ message: copy.errors.slowDown })
     }
-    const visibility = req.query.visibility === 'all' ? 'all' : 'public'
+    const visibility = 'all'
     const nonce = crypto.randomBytes(16).toString('hex')
     setCookie(res, 'kept_oauth', signPayload({ nonce, visibility, exp: Date.now() + 10 * 60 * 1000 }), 600)
-    const scope = visibility === 'all' ? 'read:user user:email repo' : 'read:user user:email'
+    const scope = 'read:user user:email repo'
     const url = new URL('https://github.com/login/oauth/authorize')
     url.searchParams.set('client_id', config.githubClientId)
-    url.searchParams.set('redirect_uri', `${config.publicUrl}/github/auth/callback`)
+    url.searchParams.set('redirect_uri', github.callbackUrl())
     url.searchParams.set('scope', scope)
     url.searchParams.set('state', nonce)
     return res.redirect(url.toString())
@@ -431,11 +442,15 @@ export function buildApp() {
       canReadPrivate: github.canReadPrivate(token.scope),
       preview: false,
     }
-    let account
+    let mine = null
     if (clerkOn()) {
       const { userId } = getAuth(req)
-      if (!userId) return res.redirect('/sign-in?next=/start')
-      const mine = await ensureClerkAccount(userId)
+      if (userId) mine = await ensureClerkAccount(userId)
+    }
+    if (!mine) mine = await accountFromRequest(req)
+
+    let account
+    if (mine) {
       const other = await db.getAccountByGithubId(profile.githubId)
       if (other && other.id !== mine.id) {
         clearCookie(res, 'kept_oauth')
@@ -453,9 +468,11 @@ export function buildApp() {
     } else {
       account = await db.upsertAccount(githubFields)
     }
-    const session = await db.createSession(account.id)
     clearCookie(res, 'kept_oauth')
-    setCookie(res, 'kept_session', session, 60 * 60 * 24 * 14)
+    if (!readCookies(req).kept_session) {
+      const sessionId = await db.createSession(account.id)
+      setCookie(res, 'kept_session', sessionId, 60 * 60 * 24 * 14)
+    }
     return res.redirect(`/studio?visibility=${payload.visibility === 'all' ? 'all' : 'public'}`)
   }))
 
@@ -473,30 +490,29 @@ export function buildApp() {
         res.append('Set-Cookie', parts.join('; '))
       }
     }
-    await db.deleteSession(readCookies(req).kept_session)
+    try {
+      await db.deleteSession(readCookies(req).kept_session)
+    } catch (error) {
+      console.error('sign out failed', error.message)
+    }
     clearCookie(res, 'kept_session')
     res.json({ ok: true })
   }))
 
-  app.post('/api/preview', wrap(async (req, res) => {
-    if (config.isProd) throw new HttpError(404, copy.errors.missingLink)
-    if (!allow(`preview:${clientIp(req)}`, 10, 60_000)) throw new HttpError(429, copy.errors.slowDown)
-    const account = await db.upsertAccount({
-      githubId: `preview:${crypto.randomUUID()}`,
-      login: 'sample',
-      name: samplePerson.name,
-      email: samplePerson.email,
-      avatarUrl: '',
-      bio: samplePerson.bio,
-      blog: '',
-      location: samplePerson.location,
-      tokenCiphertext: encrypt('preview'),
-      canReadPrivate: true,
-      preview: true,
-    })
-    const session = await db.createSession(account.id)
-    setCookie(res, 'kept_session', session, 60 * 60 * 24)
-    res.status(201).json({ account: presentAccount(account) })
+  async function startGuestSession(req, res) {
+    if (!allow(`guest:${clientIp(req)}`, 10, 60_000)) throw new HttpError(429, copy.errors.slowDown)
+    const payload = await createGuestSession(res)
+    res.status(201).json(payload)
+  }
+
+  app.post('/api/preview', wrap(async (req, res) => startGuestSession(req, res)))
+  app.post('/api/guest', wrap(async (req, res) => {
+    if (req.query.action === 'leave') {
+      await endKeptSession(req, res)
+      res.json({ ok: true })
+      return
+    }
+    await startGuestSession(req, res)
   }))
 
   app.get('/api/projects', wrap(async (req, res) => {
@@ -571,6 +587,19 @@ export function buildApp() {
     res.json(await presentLink(link))
   }))
 
+  app.patch('/api/links/:id/person', wrap(async (req, res) => {
+    if (!UUID.test(req.params.id)) throw new HttpError(404, copy.errors.missingLink)
+    const account = await requireAccount(req)
+    try {
+      const saved = await savePerson(account.id, req.params.id, req.body || {})
+      if (!saved) throw new HttpError(404, copy.errors.missingLink)
+      res.json(saved)
+    } catch (error) {
+      if (error.code === 'email') throw new HttpError(400, copy.errors.email)
+      throw error
+    }
+  }))
+
   app.patch('/api/links/:id', wrap(async (req, res) => {
     if (!UUID.test(req.params.id)) throw new HttpError(404, copy.errors.missingLink)
     const account = await requireAccount(req)
@@ -628,7 +657,11 @@ export function buildApp() {
     const account = await requireAccount(req)
     const existing = await db.getLinkForAccount(req.params.id, account.id)
     if (!existing) throw new HttpError(404, copy.errors.missingLink)
-    const result = await refreshLink(existing.id, { mode: 'check', reason: copy.reasons.updated })
+    const forceFull = existing.status === 'preparing' || req.body?.full === true
+    const result = await refreshLink(existing.id, {
+      mode: forceFull ? 'full' : 'check',
+      reason: forceFull ? copy.reasons.first : copy.reasons.updated,
+    })
     const link = await db.getLink(existing.id)
     const body = await presentLink(link)
     if (!result.changed) body.message = copy.errors.upToDate
@@ -644,8 +677,17 @@ export function buildApp() {
   }))
 
   app.get('/sample', wrap(async (_req, res) => {
-    const link = await ensureSampleLink()
-    res.redirect(302, `/r/${link.slug}`)
+    if (process.env.VERCEL) {
+      res.redirect(302, `/r/${STATIC_EXAMPLE_SLUG}`)
+      return
+    }
+    try {
+      const link = await ensureSampleLink()
+      res.redirect(302, `/r/${link.slug}`)
+    } catch (error) {
+      console.error(error)
+      res.redirect(302, `/r/${STATIC_EXAMPLE_SLUG}`)
+    }
   }))
 
   app.get('/example.pdf', wrap(async (_req, res) => {
@@ -661,6 +703,19 @@ export function buildApp() {
     const raw = req.params.slug
     const asPdf = raw.endsWith('.pdf')
     const slug = asPdf ? raw.slice(0, -4) : raw
+    if (slug === STATIC_EXAMPLE_SLUG) {
+      const resume = exampleResume()
+      if (asPdf) {
+        const pdf = await renderPdf(resume)
+        res.setHeader('Content-Type', 'application/pdf')
+        res.setHeader('Content-Disposition', `inline; filename="${fileName(resume.name)}"`)
+        res.setHeader('Cache-Control', 'no-store')
+        return res.send(pdf)
+      }
+      res.setHeader('Cache-Control', 'no-store')
+      res.setHeader('X-Robots-Tag', 'noindex, nofollow')
+      return res.type('html').send(renderPublicPage({ slug: STATIC_EXAMPLE_SLUG, resume }))
+    }
     if (!/^[a-z0-9]{10}$/.test(slug)) {
       return asPdf ? sendPdf(res, null, 404) : res.status(404).type('html').send(renderPublicPage(null))
     }
@@ -755,6 +810,7 @@ function existingToBody(link) {
     email: link.email,
     location: link.location,
     education: link.education || '',
+    experience: link.experience || '',
     roleTarget: link.role_target,
     instructions: link.instructions,
     repos: link.selected_repos,
