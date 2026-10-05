@@ -496,6 +496,13 @@ test('a model conclusion keeps typographic punctuation and a non-Latin project n
   assert.equal(cleanConclusion('Parcel 是一个 tool for invoices.', 'Parcel'), '')
 })
 
+test('a hook signature must be one lowercase-insensitive string header', () => {
+  const body = Buffer.from('{"zen":"ok"}')
+  const sig = `sha256=${createHmac('sha256', 'hook-secret').update(body).digest('hex')}`
+  assert.equal(verifyGithubSignature(body, sig.toUpperCase().replace('SHA256=', 'sha256='), 'hook-secret'), true)
+  assert.equal(verifyGithubSignature(body, [sig], 'hook-secret'), false)
+})
+
 test('a line that opens with the project name keeps its subject', () => {
   assert.deepEqual(uniqueLines(['Parcel is a web service.'], 'Parcel'), ['Parcel is a web service.'])
   assert.deepEqual(uniqueLines(['Arka: Your terminal, upgraded.'], 'Arka'), ['Your terminal, upgraded.'])

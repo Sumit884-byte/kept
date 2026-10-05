@@ -93,6 +93,8 @@ function usesSample(account) {
   return accountKind(account).sample
 }
 
+const DOTFILE = /(^|\/)\.(?!well-known(\/|$))/
+
 // Keep in sync with the import in src/public/gemma.js and the ONNX runtime it pulls in.
 const MODEL_SCRIPTS = [
   'https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.3.0',
@@ -760,7 +762,7 @@ export function buildApp() {
 
   app.use((req, res, next) => {
     if (req.method !== 'GET' && req.method !== 'HEAD') return next()
-    if (path.extname(req.path)) return res.status(404).end()
+    if (path.extname(req.path) || DOTFILE.test(req.path)) return res.status(404).end()
     return res.sendFile(path.join(publicDir, 'index.html'))
   })
 
