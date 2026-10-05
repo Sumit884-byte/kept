@@ -6,6 +6,13 @@ export function accountKind(account) {
   }
 }
 
+export function githubConnectPlan(mine, other) {
+  if (!other || String(other.id) === String(mine?.id)) return 'attach'
+  const id = String(mine?.github_id || '')
+  if (id.startsWith('clerk:') || id.startsWith('preview:')) return 'adopt'
+  return 'taken'
+}
+
 export function bindingFromAccount(account) {
   if (!account?.login) return null
   return {

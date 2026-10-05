@@ -21,7 +21,7 @@ import { renderPublicPage } from '../src/publicPage.js'
 import { modelBase } from '../src/config.js'
 import { updatedLabel } from '../src/when.js'
 import { isLightPath, paintPerson, personFields, personOnly, projectCounts } from '../src/fast.js'
-import { accountKind, bindingFromAccount, sameBinding } from '../src/public/accountBinding.js'
+import { accountKind, bindingFromAccount, githubConnectPlan, sameBinding } from '../src/public/accountBinding.js'
 
 test('a badge-only writeup is treated as thin', () => {
   const result = assessReadme('# Wow\n\n![badge](https://img.shields.io/badge/build-passing)\n')
@@ -402,6 +402,16 @@ test('a shared page escapes the name', () => {
   })
   assert.match(html, /&lt;script&gt;/)
   assert.doesNotMatch(html, /<script>/)
+})
+
+test('signing in adopts the GitHub account that is already kept', () => {
+  const signedIn = { id: 'clerk-row', github_id: 'clerk:user_1' }
+  const kept = { id: 'github-row', github_id: '4242', clerk_user_id: null }
+  assert.equal(githubConnectPlan(signedIn, null), 'attach')
+  assert.equal(githubConnectPlan(signedIn, signedIn), 'attach')
+  assert.equal(githubConnectPlan(signedIn, kept), 'adopt')
+  assert.equal(githubConnectPlan({ id: 'guest', github_id: 'preview:abc' }, kept), 'adopt')
+  assert.equal(githubConnectPlan({ id: 'other', github_id: '999' }, kept), 'taken')
 })
 
 test('a guest linked to GitHub is no longer a sample account', () => {

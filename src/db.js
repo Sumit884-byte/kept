@@ -2,6 +2,7 @@ import pg from 'pg'
 import { config } from './config.js'
 import { applyHistory } from './history.js'
 import { sessionId, slug } from './ids.js'
+import { githubConnectPlan } from './public/accountBinding.js'
 
 const { Pool } = pg
 
@@ -278,6 +279,42 @@ export async function getAccountByGithubId(githubId) {
   if (!githubId) return null
   const result = await query('SELECT * FROM accounts WHERE github_id = $1', [githubId])
   return result.rows[0] || null
+}
+
+export async function connectGithub(mine, account) {
+  const other = await getAccountByGithubId(account.githubId)
+  const plan = githubConnectPlan(mine, other)
+  if (plan === 'taken') {
+    const error = new Error('taken')
+    error.code = '23505'
+    throw error
+  }
+  if (plan === 'attach') return attachGithub(mine.id, account)
+  const client = await getPool().connect()
+  try {
+    await client.query('BEGIN')
+    const clerkId = mine.clerk_user_id || null
+    if (clerkId) {
+      await client.query('UPDATE accounts SET clerk_user_id = NULL, updated_at = NOW() WHERE id = $1', [mine.id])
+      await client.query(
+        'UPDATE accounts SET clerk_user_id = $2, updated_at = NOW() WHERE id = $1',
+        [other.id, clerkId],
+      )
+    }
+    await client.query('UPDATE links SET account_id = $2, updated_at = NOW() WHERE account_id = $1', [mine.id, other.id])
+    await client.query('UPDATE sessions SET account_id = $2 WHERE account_id = $1', [mine.id, other.id])
+    await client.query(
+      `DELETE FROM accounts WHERE id = $1 AND (github_id LIKE 'clerk:%' OR github_id LIKE 'preview:%')`,
+      [mine.id],
+    )
+    await client.query('COMMIT')
+  } catch (error) {
+    await client.query('ROLLBACK')
+    throw error
+  } finally {
+    client.release()
+  }
+  return attachGithub(other.id, account)
 }
 
 export async function attachGithub(id, account) {

@@ -456,13 +456,8 @@ export function buildApp() {
 
     let account
     if (mine) {
-      const other = await db.getAccountByGithubId(profile.githubId)
-      if (other && other.id !== mine.id) {
-        clearCookie(res, 'kept_oauth')
-        return res.redirect('/start?notice=taken')
-      }
       try {
-        account = await db.attachGithub(mine.id, githubFields)
+        account = await db.connectGithub(mine, githubFields)
       } catch (error) {
         if (error.code === '23505') {
           clearCookie(res, 'kept_oauth')

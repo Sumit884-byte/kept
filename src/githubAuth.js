@@ -49,12 +49,8 @@ export async function githubFinish(req) {
   if (!mine) return { location: '/sign-in?next=/start', cookie: authCookie('kept_oauth', '', 0) }
   const token = await github.exchangeCode(query.code)
   const profile = await github.profile(token.access_token)
-  const other = await db.getAccountByGithubId(profile.githubId)
-  if (other && other.id !== mine.id) {
-    return { location: '/start?notice=taken', cookie: authCookie('kept_oauth', '', 0) }
-  }
   try {
-    await db.attachGithub(mine.id, {
+    await db.connectGithub(mine, {
       ...profile,
       tokenCiphertext: encrypt(token.access_token),
       canReadPrivate: github.canReadPrivate(token.scope),
