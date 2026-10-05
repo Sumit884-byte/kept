@@ -464,3 +464,10 @@ test('the site copy stays in everyday language', () => {
   const hits = strings.filter((value) => banned.test(value))
   assert.deepEqual(hits, [])
 })
+
+test('a model conclusion keeps typographic punctuation and a non-Latin project name', () => {
+  assert.equal(cleanConclusion('Parcel’s service sends reminders daily.', 'Parcel'), "Parcel's service sends reminders daily.")
+  assert.equal(cleanConclusion('Parcel — sends invoice reminders daily.', 'Parcel'), 'Parcel - sends invoice reminders daily.')
+  assert.equal(cleanConclusion('Проект is a tool for invoices.', 'Проект'), 'Проект is a tool for invoices.')
+  assert.equal(cleanConclusion('Parcel 是一个 tool for invoices.', 'Parcel'), '')
+})
