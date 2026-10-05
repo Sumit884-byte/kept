@@ -465,6 +465,13 @@ test('the site copy stays in everyday language', () => {
   assert.deepEqual(hits, [])
 })
 
+test('a malformed cookie value reads as empty instead of throwing', async () => {
+  const { decodeCookieValue, readSessionCookie } = await import('../src/sessionCookie.js')
+  assert.equal(decodeCookieValue('%E0%A4%A'), '')
+  assert.equal(decodeCookieValue('abc%20d'), 'abc d')
+  assert.equal(readSessionCookie({ headers: { cookie: 'kept_session=%E0%A4%A' } }), '')
+})
+
 test('a line that opens with the project name keeps its subject', () => {
   assert.deepEqual(uniqueLines(['Parcel is a web service.'], 'Parcel'), ['Parcel is a web service.'])
   assert.deepEqual(uniqueLines(['Arka: Your terminal, upgraded.'], 'Arka'), ['Your terminal, upgraded.'])
