@@ -184,7 +184,9 @@ async function dressResume(link, projects) {
 async function shownResume(link) {
   if (!link?.resume) return null
   const projects = link.id ? await db.loadContext(link) : []
-  return dressResume(link, projects)
+  const resume = await dressResume(link, projects)
+  if (!resume || !link.slug) return resume
+  return { ...resume, liveUrl: `${config.publicUrl}/r/${link.slug}.pdf` }
 }
 
 async function presentLink(link) {
@@ -288,9 +290,7 @@ function mapGithubError(error) {
 
 async function sendPdf(res, link, status = 200) {
   const prepared = link?.resume ? await shownResume(link) : null
-  const resume = prepared
-    ? { ...prepared, liveUrl: `${config.publicUrl}/r/${link.slug}.pdf` }
-    : {
+  const resume = prepared || {
       name: link?.display_name || copy.name,
       summary: link ? copy.public.preparing : copy.public.missing,
       contact: [],

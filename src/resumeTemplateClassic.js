@@ -4,10 +4,8 @@
  */
 import React from 'react'
 import { Document, Page, Text, View, StyleSheet } from '@react-pdf/renderer'
-import { copy } from './copy.js'
-import { displayProjectTitle, introForPdf } from './display.js'
+import { resumeOutline } from './resumeOutline.js'
 import { pdfText } from './pdfText.js'
-import { starLabel } from './resume.js'
 
 export const TEMPLATE_ID = 'classic'
 
@@ -182,7 +180,7 @@ function Section({ title, first, children }) {
 }
 
 function Bullets({ lines }) {
-  const items = (lines || []).slice(0, 3).map((line) => pdfText(line)).filter(Boolean)
+  const items = (lines || []).map((line) => pdfText(line)).filter(Boolean)
   return React.createElement(
     View,
     null,
@@ -196,17 +194,15 @@ function Bullets({ lines }) {
 }
 
 function Project({ item, first }) {
-  const title = displayProjectTitle(item.title)
-  const stars = Number(item.stars) || 0
   return React.createElement(
     View,
     { style: first ? styles.projectFirst : styles.project },
     React.createElement(
       Text,
       { style: styles.projectTitleLine },
-      React.createElement(Text, { style: styles.projectTitle }, pdfText(title)),
-      stars > 0
-        ? React.createElement(Text, { style: styles.projectStars }, pdfText(`   ${starLabel(stars)}`))
+      React.createElement(Text, { style: styles.projectTitle }, pdfText(item.title)),
+      item.stars
+        ? React.createElement(Text, { style: styles.projectStars }, pdfText(`   ${item.stars}`))
         : null,
     ),
     item.url ? React.createElement(Text, { style: styles.projectUrl }, pdfText(item.url)) : null,
@@ -214,99 +210,64 @@ function Project({ item, first }) {
   )
 }
 
-export function ClassicResumePage({ resume }) {
-  const intro = introForPdf(resume)
-  const nameStyle = (resume.name || '').length > 26 ? styles.nameLong : styles.name
-  let sectionIndex = 0
-  const nextFirst = () => {
-    const first = sectionIndex === 0
-    sectionIndex += 1
-    return first
+function sectionNodes(section) {
+  if (section.kind === 'lines') {
+    return section.lines.map((line, index) => React.createElement(
+      Text,
+      { key: `line-${index}`, style: styles.bodyLine },
+      pdfText(line),
+    ))
   }
+  if (section.kind === 'skills') {
+    return React.createElement(Text, { style: styles.skills }, pdfText(section.text))
+  }
+  return section.projects.map((item, index) => React.createElement(Project, {
+    key: `project-${index}`,
+    item,
+    first: index === 0,
+  }))
+}
 
+export function ClassicResumePage({ resume }) {
+  const doc = resumeOutline(resume) || { name: '', contact: [], sections: [] }
+  const nameStyle = doc.name.length > 26 ? styles.nameLong : styles.name
   return React.createElement(
     Page,
     { size: 'LETTER', style: styles.page },
     React.createElement(
       View,
       { style: styles.headerBand },
-      resume.example
-        ? React.createElement(Text, { style: styles.eyebrow }, pdfText(String(copy.pdf.example).toUpperCase()))
+      doc.example
+        ? React.createElement(Text, { style: styles.eyebrow }, pdfText(String(doc.exampleLabel || '').toUpperCase()))
         : null,
-      React.createElement(Text, { style: nameStyle }, pdfText(resume.name || 'Resume')),
-      (resume.contact || []).length
-        ? React.createElement(Text, { style: styles.contact }, pdfText(resume.contact.join('  ·  ')))
+      React.createElement(Text, { style: nameStyle }, pdfText(doc.name || 'Resume')),
+      doc.contact.length
+        ? React.createElement(Text, { style: styles.contact }, pdfText(doc.contact.join('  ·  ')))
         : null,
     ),
     React.createElement(
       View,
       { style: styles.body },
-      (intro.headline || intro.summary)
+      (doc.headline || doc.summary)
         ? React.createElement(
           View,
           { style: styles.intro },
-          intro.headline
-            ? React.createElement(Text, { style: styles.introHeadline }, pdfText(intro.headline))
+          doc.headline
+            ? React.createElement(Text, { style: styles.introHeadline }, pdfText(doc.headline))
             : null,
-          intro.summary
-            ? React.createElement(Text, { style: styles.introSummary }, pdfText(intro.summary))
+          doc.summary
+            ? React.createElement(Text, { style: styles.introSummary }, pdfText(doc.summary))
             : null,
         )
         : null,
-      (resume.experience || []).length
-        ? React.createElement(
-          Section,
-          { title: copy.pdf.experience, first: nextFirst() },
-          (resume.experience || []).map((line, index) => React.createElement(
-            Text,
-            { key: `exp-${index}`, style: styles.bodyLine },
-            pdfText(line),
-          )),
-        )
-        : null,
-      (resume.education || []).length
-        ? React.createElement(
-          Section,
-          { title: copy.pdf.education, first: nextFirst() },
-          (resume.education || []).map((line, index) => React.createElement(
-            Text,
-            { key: `edu-${index}`, style: styles.bodyLine },
-            pdfText(line),
-          )),
-        )
-        : null,
-      (resume.skills || []).length
-        ? React.createElement(
-          Section,
-          { title: copy.pdf.skills, first: nextFirst() },
-          React.createElement(Text, { style: styles.skills }, pdfText(resume.skills.join(', '))),
-        )
-        : null,
-      (resume.work || []).length
-        ? React.createElement(
-          Section,
-          { title: copy.pdf.selectedWork, first: nextFirst() },
-          (resume.work || []).map((item, index) => React.createElement(Project, {
-            key: `work-${index}`,
-            item,
-            first: index === 0,
-          })),
-        )
-        : null,
-      (resume.contributions || []).length
-        ? React.createElement(
-          Section,
-          { title: copy.pdf.contributions, first: nextFirst() },
-          (resume.contributions || []).map((item, index) => React.createElement(Project, {
-            key: `contrib-${index}`,
-            first: index === 0,
-            item: { title: item.title, url: item.url, stars: 0, lines: [item.line] },
-          })),
-        )
-        : null,
+      ...doc.sections.map((section, index) => React.createElement(
+        Section,
+        { key: `section-${index}`, title: section.title, first: section.first },
+        sectionNodes(section),
+      )),
     ),
-    resume.liveUrl
-      ? React.createElement(Text, { style: styles.footer, fixed: true }, pdfText(resume.liveUrl))
+    doc.liveUrl
+      ? React.createElement(Text, { style: styles.footer, fixed: true }, pdfText(doc.liveUrl))
       : null,
   )
 }

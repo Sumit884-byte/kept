@@ -15,6 +15,8 @@ import { verifyGithubSignature, parseNext, profileName, nameFromProfileReadme } 
 import { encrypt, decrypt } from '../src/cryptoBox.js'
 import { displayProjectTitle } from '../src/display.js'
 import { pdfText, renderPdf } from '../src/pdf.js'
+import { resumeOutline } from '../src/resumeOutline.js'
+import { renderPaperHtml } from '../src/public/paperHtml.js'
 import { countPdfPages } from '../src/pdfLayout.js'
 import { samplePerson, sampleProjects } from '../src/sample.js'
 import { renderPublicPage } from '../src/publicPage.js'
@@ -362,9 +364,14 @@ test('pdf titles read like project names', () => {
 
 test('pdf keeps a name and stays a pdf', async () => {
   const resume = exampleResume()
+  const outline = resumeOutline(resume)
+  const html = renderPaperHtml(resume, (value) => String(value ?? ''))
   const buffer = await renderPdf(resume)
   assert.equal(buffer.subarray(0, 5).toString(), '%PDF-')
   assert.match(buffer.toString('latin1'), /Mira Chen/)
+  assert.match(html, /Mira Chen/)
+  const work = outline.sections.find((section) => section.kind === 'projects')
+  assert.match(html, new RegExp(work.projects[0].title))
   assert.equal(pdfText('José — “hi”'), 'José - "hi"')
 })
 
