@@ -1,6 +1,6 @@
 import { bindingFromAccount, sameBinding } from './accountBinding.js'
 import { copy } from '/copy.js'
-import { renderPaperHtml } from './paperHtml.js'
+import { renderPaperHtml } from './paperHtml.js?v=paper'
 import { fullNamesForRole } from '/rolePick.js'
 
 const BINDING_KEY = 'kept.binding'
