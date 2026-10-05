@@ -1,5 +1,5 @@
 /** Render example resume PDF to a PNG (1440×900 canvas). */
-import { mkdir, writeFile } from 'node:fs/promises'
+import { mkdir } from 'node:fs/promises'
 import path from 'node:path'
 import { chromium } from 'playwright'
 import { exampleResume } from '../src/example.js'

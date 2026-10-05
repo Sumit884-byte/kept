@@ -234,11 +234,6 @@ function safeNext() {
   return next
 }
 
-function authPath(path) {
-  const next = safeNext()
-  return next ? `${path}?next=${encodeURIComponent(next)}` : path
-}
-
 async function refreshMe() {
   try {
     state.me = await apiOnce('/api/me')
@@ -906,7 +901,6 @@ function render() {
     }
   }
   document.title = copy.name
-  const editor = document.querySelector('#editor')
   maybeLoadProjects()
   updateCount()
   if (!state.editing) schedulePaperLayout()
@@ -924,7 +918,6 @@ async function ensureProjects(visibility) {
     if (editor) {
       const next = readEditor(editor)
       const scope = next.visibility || visibility
-      const ready = true
       const role = next.roleTarget || ''
       if (!state.reposTouched && (state.fillRepos || !next.repos.length)) {
         next.repos = mergeRoleRepos(scope, role, [], { fillEmpty: true })
@@ -1012,11 +1005,14 @@ async function ensureProjects(visibility) {
     state.projectsLoading = false
     state.projectsRetrying = false
     render()
+  } catch (error) {
+    console.error('projects load failed', error)
   } finally {
-    if (seq !== projectsLoadSeq || (!state.projectsLoading && !state.projectsRetrying)) return
-    state.projectsLoading = false
-    state.projectsRetrying = false
-    render()
+    if (seq === projectsLoadSeq && (state.projectsLoading || state.projectsRetrying)) {
+      state.projectsLoading = false
+      state.projectsRetrying = false
+      render()
+    }
   }
 }
 
