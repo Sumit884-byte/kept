@@ -1,7 +1,7 @@
 {
   "framework": null,
   "installCommand": "",
-  "buildCommand": "cp src/copy.js src/public/copy.js && cp src/brief.js src/public/brief.js && cp src/projectKinds.js src/public/projectKinds.js && cp src/rolePick.js src/public/rolePick.js && cp src/display.js src/public/display.js && cp src/resumeOutline.js src/public/resumeOutline.js",
+  "buildCommand": "node scripts/sync-public.js",
   "outputDirectory": "src/public",
   "headers": [
     {
