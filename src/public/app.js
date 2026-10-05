@@ -734,8 +734,8 @@ function viewDetail() {
           <button class="button secondary" type="button" data-action="refresh" ${state.busy ? 'disabled' : ''}>${esc(state.busy ? copy.detail.checking : copy.detail.check)}</button>
         </div>
       </form>
-      <p class="help">${esc(copy.detail.removeHelp)}</p>
       ${removeControls(link.id)}
+      ${state.confirmRemove === link.id ? '' : `<p class="help">${esc(copy.detail.removeHelp)}</p>`}
     </div>
     <div class="paper-column">
       <div class="paper-tools">
