@@ -10,15 +10,6 @@
     "start": "node --env-file-if-exists=.env src/server.js",
     "dev": "node --watch --env-file-if-exists=.env src/server.js",
     "test": "node --test",
-    "layout:screenshots": "node scripts/layout-screenshots.mjs",
-    "pdf:preview": "node scripts/pdf-preview.mjs",
-    "html:preview": "node scripts/html-preview.mjs",
-    "hero:preview": "node scripts/hero-preview.mjs",
-    "nav:audit": "node scripts/nav-audit.mjs",
-    "brave:demo": "node scripts/brave-walkthrough.mjs",
-    "demo:record": "node scripts/kept-walkthrough-record.mjs",
-    "demo:record:brave": "CDP=http://127.0.0.1:9222 node scripts/kept-walkthrough-record.mjs",
-    "walkthrough:audit": "WALKTHROUGH_FAST=1 node scripts/walkthrough-audit.mjs",
     "lint": "eslint ."
   },
   "devDependencies": {
