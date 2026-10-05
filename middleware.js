@@ -1,4 +1,5 @@
 import { createClerkClient } from '@clerk/backend'
+import { isHiddenPath } from './src/hiddenPath.js'
 
 const API = (process.env.KEPT_API || '').replace(/\/$/, '')
 const CLERK_FRONTEND = 'https://frontend-api.clerk.dev/'
@@ -129,6 +130,7 @@ async function clerkHandshake(request) {
 export const config = {
   matcher: [
     '/((?!.*\\.).*)',
+    '/((?:.*/)?\\.(?!well-known(?:/|$)).*)',
     '/api/:path*',
     '/__clerk/:path*',
     '/example.pdf',
@@ -138,6 +140,9 @@ export const config = {
 
 export default async function middleware(request) {
   const incoming = new URL(request.url)
+  if (isHiddenPath(incoming.pathname)) {
+    return new Response(null, { status: 404, headers: { 'Cache-Control': 'no-store' } })
+  }
   if (incoming.pathname === '/v1/oauth_callback') {
     if (incoming.searchParams.get('err_code')) {
       return Response.redirect(`${incoming.origin}/sign-in?notice=google`, 302)
