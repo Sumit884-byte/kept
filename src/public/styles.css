@@ -543,20 +543,19 @@ h1 {
 .public-paper { width: 100%; }
 
 .paper-edit {
-  display: block;
-  width: 100%;
-  border: 0;
-  border-radius: 0;
-  background: transparent;
-  padding: 0;
-  resize: none;
-  overflow: hidden;
-  field-sizing: content;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
   font: inherit;
   color: inherit;
   line-height: inherit;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  outline: none;
+  border-radius: 0.15rem;
+  caret-color: var(--green);
+}
+
+.paper-edit:focus {
+  background: rgba(31, 106, 74, 0.1);
+  box-shadow: 0 1px 0 var(--green);
 }
 
 .paper h2:not(.paper-name) {
