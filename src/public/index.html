@@ -5,23 +5,13 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Kept</title>
   <meta name="description" content="One resume link that stays current when your work does.">
-  <script>
-    (function () {
-      var u = new URL(location.href)
-      if (!u.searchParams.has('__clerk_handshake') && !u.searchParams.has('__clerk_db_jwt')) return
-      u.searchParams.delete('__clerk_handshake')
-      u.searchParams.delete('__clerk_db_jwt')
-      var q = u.searchParams.toString()
-      history.replaceState({}, '', u.pathname + (q ? '?' + q : '') + u.hash)
-    })()
-  </script>
+  <script src="/clerk-url.js"></script>
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="preload" href="/styles.css?v=pdfview" as="style">
   <link rel="preload" href="/api/me" as="fetch" crossorigin="use-credentials">
   <link rel="stylesheet" href="/styles.css?v=pdfview">
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,560;9..144,640&amp;family=Public+Sans:ital,wght@0,400;0,560;1,400&amp;display=swap" media="print" onload="this.media='all'">
-  <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,560;9..144,640&amp;family=Public+Sans:ital,wght@0,400;0,560;1,400&amp;display=swap"></noscript>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,560;9..144,640&amp;family=Public+Sans:ital,wght@0,400;0,560;1,400&amp;display=swap">
 </head>
 <body>
   <a class="skip" href="#main">Skip to content</a>

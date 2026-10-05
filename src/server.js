@@ -91,17 +91,24 @@ function usesSample(account) {
   return accountKind(account).sample
 }
 
+// Keep in sync with the import in src/public/gemma.js and the ONNX runtime it pulls in.
+const MODEL_SCRIPTS = [
+  'https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.3.0',
+  'https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.3.0/',
+  'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.31.0-dev.20260914-8d85527a0/',
+].join(' ')
+
 function contentSecurityPolicy() {
   const host = clerkFrontendHost(config.clerkPublishableKey)
   const clerkSource = host ? ` https://${host}` : ''
   return [
     "default-src 'self'",
-    `script-src 'self' https://cdn.jsdelivr.net https://challenges.cloudflare.com${clerkSource} blob: 'wasm-unsafe-eval'`,
+    `script-src 'self' ${MODEL_SCRIPTS} https://challenges.cloudflare.com${clerkSource} blob: 'wasm-unsafe-eval'`,
     "worker-src 'self' blob:",
     "child-src 'self' blob:",
     "style-src 'self' https://fonts.googleapis.com",
     "font-src https://fonts.gstatic.com data:",
-    `connect-src 'self' https://api.github.com https://cdn.jsdelivr.net https://huggingface.co https://cdn-lfs.huggingface.co https://us.aws.cdn.hf.co https://eu.aws.cdn.hf.co https://cas-bridge.xethub.hf.co https://cas-server.xethub.hf.co https://clerk-telemetry.com${clerkSource}`,
+    `connect-src 'self' https://api.github.com ${MODEL_SCRIPTS} https://huggingface.co https://cdn-lfs.huggingface.co https://us.aws.cdn.hf.co https://eu.aws.cdn.hf.co https://cas-bridge.xethub.hf.co https://cas-server.xethub.hf.co https://clerk-telemetry.com${clerkSource}`,
     "frame-src 'self' https://challenges.cloudflare.com",
     "img-src 'self' data:",
   ].join('; ')
