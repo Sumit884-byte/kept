@@ -188,6 +188,31 @@ export async function beginSignIn(publishableKey, email, password) {
   return 'code'
 }
 
+export async function sendPasswordReset(publishableKey, email) {
+  const clerk = await loadClerk(publishableKey)
+  await clerk.client.signIn.create({
+    strategy: 'reset_password_email_code',
+    identifier: email,
+  })
+}
+
+export async function finishPasswordReset(publishableKey, code, password) {
+  const clerk = await loadClerk(publishableKey)
+  let attempt = await clerk.client.signIn.attemptFirstFactor({
+    strategy: 'reset_password_email_code',
+    code,
+    password,
+  })
+  if (attempt.status === 'needs_new_password') {
+    attempt = await clerk.client.signIn.resetPassword({
+      password,
+      signOutOfOtherSessions: true,
+    })
+  }
+  if (attempt.status !== 'complete' || !attempt.createdSessionId) throw new Error('incomplete')
+  await clerk.setActive({ session: attempt.createdSessionId })
+}
+
 export async function confirmSignIn(publishableKey, code) {
   const clerk = await loadClerk(publishableKey)
   const attempt = await clerk.client.signUp.attemptEmailAddressVerification({ code })

@@ -405,6 +405,18 @@ function viewStart() {
   </section>`
 }
 
+function passwordField(label, autocomplete) {
+  return `<label class="field field-password"><span>${esc(label)}</span>
+        <span class="password-wrap">
+          <input name="password" type="password" autocomplete="${esc(autocomplete)}" required>
+          <button type="button" class="password-toggle" data-action="toggle-password" aria-label="${esc(copy.auth.showPassword)}" aria-pressed="false">
+            <svg class="icon icon-eye" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
+            <svg class="icon icon-eye-off" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9.88 9.88a3 3 0 1 0 4.24 4.24"/><path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68"/><path d="M6.61 6.61A13.52 13.52 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61"/><line x1="2" x2="22" y1="2" y2="22"/></svg>
+          </button>
+        </span>
+      </label>`
+}
+
 function viewAuth() {
   const join = parse(location.pathname).name === 'join'
   const title = join ? copy.auth.signInTitle : copy.auth.loginTitle
@@ -415,8 +427,36 @@ function viewAuth() {
   const switchLine = join
     ? `Already have an account? ${other}`
     : `Don't have an account? ${other}`
+  const back = `<p class="auth-switch"><button type="button" class="text-button" data-action="show-login">${esc(copy.auth.backToLogin)}</button></p>`
   if (!state.me?.signInReady) {
     return `<section class="panel auth-panel"><p class="quiet">${esc(copy.auth.notReady)}</p></section>`
+  }
+  if (state.authStep === 'forgot') {
+    return `<section class="panel auth-panel">
+      <form id="auth-forgot" class="auth-card">
+        <img class="auth-mark" src="/favicon.svg" alt="">
+        <h1>${esc(copy.auth.forgotTitle)}</h1>
+        <p class="lede">${esc(copy.auth.forgotLede)}</p>
+        ${banner()}
+        <label class="field"><span>${esc(copy.auth.email)}</span><input name="email" type="email" autocomplete="email" value="${esc(state.resetEmail || '')}" required></label>
+        <button class="button auth-submit" type="submit" ${state.busy ? 'disabled' : ''}>${esc(state.busy ? copy.loading : copy.auth.forgotSend)}</button>
+        ${back}
+      </form>
+    </section>`
+  }
+  if (state.authStep === 'reset') {
+    return `<section class="panel auth-panel">
+      <form id="auth-reset" class="auth-card">
+        <img class="auth-mark" src="/favicon.svg" alt="">
+        <h1>${esc(copy.auth.resetTitle)}</h1>
+        <p class="lede">${esc(copy.auth.resetLede)}</p>
+        ${banner()}
+        <label class="field"><span>${esc(copy.auth.code)}</span><input name="code" inputmode="numeric" autocomplete="one-time-code" required></label>
+        ${passwordField(copy.auth.newPassword, 'new-password')}
+        <button class="button auth-submit" type="submit" ${state.busy ? 'disabled' : ''}>${esc(state.busy ? copy.loading : copy.auth.confirm)}</button>
+        ${back}
+      </form>
+    </section>`
   }
   if (state.authStep === 'code') {
     return `<section class="panel auth-panel">
@@ -437,15 +477,8 @@ function viewAuth() {
       <p class="lede">${esc(lede)}</p>
       ${banner()}
       <label class="field"><span>${esc(copy.auth.email)}</span><input name="email" type="email" autocomplete="email" required></label>
-      <label class="field field-password"><span>${esc(copy.auth.password)}</span>
-        <span class="password-wrap">
-          <input name="password" type="password" autocomplete="${join ? 'new-password' : 'current-password'}" required>
-          <button type="button" class="password-toggle" data-action="toggle-password" aria-label="${esc(copy.auth.showPassword)}" aria-pressed="false">
-            <svg class="icon icon-eye" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
-            <svg class="icon icon-eye-off" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9.88 9.88a3 3 0 1 0 4.24 4.24"/><path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68"/><path d="M6.61 6.61A13.52 13.52 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61"/><line x1="2" x2="22" y1="2" y2="22"/></svg>
-          </button>
-        </span>
-      </label>
+      ${passwordField(copy.auth.password, join ? 'new-password' : 'current-password')}
+      ${join ? '' : `<p class="auth-forgot"><button type="button" class="text-button" data-action="forgot-password">${esc(copy.auth.forgot)}</button></p>`}
       <button class="button auth-submit" type="submit" ${state.busy ? 'disabled' : ''}>${esc(state.busy ? copy.loading : copy.auth.confirm)}</button>
       ${guestButton() ? `<p class="auth-guest">${guestButton()}</p>` : ''}
       <p class="auth-switch">${switchLine}</p>
@@ -1256,6 +1289,20 @@ document.addEventListener('click', async (event) => {
     return
   }
   if (!action) return
+  if (action === 'forgot-password') {
+    const email = document.querySelector('#auth-form input[name="email"]')?.value || ''
+    state.resetEmail = email.trim()
+    state.authStep = 'forgot'
+    state.error = ''
+    render()
+    return
+  }
+  if (action === 'show-login') {
+    state.authStep = 'details'
+    state.error = ''
+    render()
+    return
+  }
   if (action === 'toggle-password') {
     const wrap = event.target.closest('.password-wrap')
     const input = wrap?.querySelector('input')
@@ -1466,10 +1513,11 @@ async function submitAuth(form) {
     return
   }
   const data = new FormData(form)
-  const email = String(data.get('email') || '').trim()
+  const email = String(data.get('email') || state.resetEmail || '').trim()
   const password = String(data.get('password') || '')
   const code = String(data.get('code') || '').trim()
-  if (form.id === 'auth-form' && password.length < 15) {
+  if (form.id === 'auth-forgot') state.resetEmail = email
+  if ((form.id === 'auth-form' || form.id === 'auth-reset') && password.length < 15) {
     state.error = copy.auth.weakPassword
     render()
     return
@@ -1478,8 +1526,17 @@ async function submitAuth(form) {
   state.error = ''
   render()
   try {
-    const { confirmSignIn, beginSignIn, logIn, clerkMessage } = await authModule()
-    if (form.id === 'auth-code') {
+    const { confirmSignIn, beginSignIn, logIn, sendPasswordReset, finishPasswordReset } = await authModule()
+    if (form.id === 'auth-forgot') {
+      await sendPasswordReset(key, email)
+      state.busy = false
+      state.authStep = 'reset'
+      render()
+      return
+    }
+    if (form.id === 'auth-reset') {
+      await finishPasswordReset(key, code, password)
+    } else if (form.id === 'auth-code') {
       await confirmSignIn(key, code)
     } else if (parse(location.pathname).name === 'join') {
       const step = await beginSignIn(key, email, password)
@@ -1496,7 +1553,10 @@ async function submitAuth(form) {
   } catch (error) {
     state.busy = false
     const { clerkMessage } = await authModule().catch(() => ({ clerkMessage: (e) => e?.message || copy.errors.generic }))
-    state.error = clerkMessage(error)
+    const code = error?.errors?.[0]?.code || ''
+    state.error = form.id === 'auth-forgot' && code === 'form_identifier_not_found'
+      ? copy.auth.unknownEmail
+      : clerkMessage(error)
     render()
   }
 }
@@ -1635,7 +1695,7 @@ document.addEventListener('submit', async (event) => {
     window.location.href = '/api/auth/github?visibility=all'
     return
   }
-  if (form.id === 'auth-form' || form.id === 'auth-code') {
+  if (form.id === 'auth-form' || form.id === 'auth-code' || form.id === 'auth-forgot' || form.id === 'auth-reset') {
     event.preventDefault()
     await submitAuth(form)
     return

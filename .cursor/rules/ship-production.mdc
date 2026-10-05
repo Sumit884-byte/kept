@@ -1,0 +1,8 @@
+---
+description: Ship finished Kept changes to production
+alwaysApply: true
+---
+
+When a change to Kept is finished, commit it, push it, and deploy the Vercel production site in the same turn. Do not leave finished work only on this machine.
+
+Skip the deploy when the change is still broken, or when the user said to hold it. Do not commit secrets. `blog.md` stays gitignored.

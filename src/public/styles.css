@@ -225,6 +225,7 @@ h1 {
 
 .auth-submit { width: 100%; margin-top: 0.4rem; }
 
+.auth-forgot { margin: 0.15rem 0 0.85rem; text-align: right; }
 .auth-switch { margin: 1.15rem 0 0; text-align: center; color: var(--muted); }
 
 .auth-switch a { color: var(--green); font-weight: 600; }
