@@ -46,7 +46,7 @@
     { "source": "/example.pdf", "destination": "/api/example?format=pdf" },
     { "source": "/r/keptsample", "destination": "/api/example?format=page" },
     { "source": "/r/keptsample.pdf", "destination": "/api/example?format=pdf" },
-    { "source": "/:path((?:.*/)?\\.(?!well-known(?:/|$)).*)", "destination": "/404" },
+    { "source": "/:path((?:.*/)?\\.(?!well-known(?:/|$)).*)", "destination": "/api/not-found" },
     { "source": "/(.*)", "destination": "/index.html" }
   ]
 }

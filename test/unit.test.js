@@ -367,7 +367,7 @@ test('github signatures and next links', () => {
 })
 
 test('hidden paths are not the app shell', async () => {
-  const { isHiddenPath } = await import('../src/server.js')
+  const { isHiddenPath } = await import('../src/hiddenPath.js')
   assert.equal(isHiddenPath('/.env'), true)
   assert.equal(isHiddenPath('/.git/config'), true)
   assert.equal(isHiddenPath('/.well-known/acme-challenge/token'), false)

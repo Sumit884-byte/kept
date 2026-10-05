@@ -22,6 +22,7 @@ import { updatedLabel } from './when.js'
 import { allow } from './limit.js'
 import { decodeCookieValue } from './sessionCookie.js'
 import { AppNotInstalled, readerTokens } from './githubApp.js'
+import { isHiddenPath } from './hiddenPath.js'
 import { accountKind } from './public/accountBinding.js'
 import { startPoller, stopPoller } from './poller.js'
 import crypto from 'node:crypto'
@@ -91,10 +92,6 @@ function hasGithub(account) {
 
 function usesSample(account) {
   return accountKind(account).sample
-}
-
-export function isHiddenPath(pathname) {
-  return /(^|\/)\.(?!well-known(\/|$))/.test(pathname || '')
 }
 
 // Keep in sync with the import in src/public/gemma.js and the ONNX runtime it pulls in.
