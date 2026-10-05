@@ -1,11 +1,13 @@
 export const GEMMA_MODEL = 'onnx-community/gemma-3-270m-it-ONNX'
 
-export function gemmaMessages({ name, description, files }) {
+export function gemmaMessages({ name, description, files }, budget) {
+  const perFile = budget || 1800
+  const total = budget ? Math.min(7000, budget * 4) : 7000
   const excerpts = (files || [])
     .slice(0, 6)
-    .map((file) => `${file.path}\n${String(file.text || '').slice(0, 1800)}`)
+    .map((file) => `${file.path}\n${String(file.text || '').slice(0, perFile)}`)
     .join('\n\n')
-    .slice(0, 7000)
+    .slice(0, total)
   return [
     {
       role: 'system',

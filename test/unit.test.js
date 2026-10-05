@@ -8,6 +8,7 @@ import { enhancementSentence, soften } from '../src/phrases.js'
 import { bulletsFor, composeResume, readableLine, readableResume, uniqueLines } from '../src/resume.js'
 import { lineIsGrounded, mergeTailored, namesFromDescriptions, namesFromTerms, projectsForRemote, publicNamesForRole, resumeWithSelection, roleBreakdownRequest, tailorResume } from '../src/tailor.js'
 import { GEMMA_MODEL, cleanConclusion, gemmaMessages } from '../src/public/gemmaText.js'
+import { gemmaPlans } from '../src/public/gemma.js'
 import { samplePrivate } from '../src/public/samplePrivate.js'
 import { findSample } from '../src/sample.js'
 import { exampleResume } from '../src/example.js'
@@ -313,6 +314,24 @@ test('private projects are described with gemma only', () => {
   assert.equal(cleanConclusion('Parcel is a scalable framework for everyone.', 'Parcel', sample), '')
   assert.equal(cleanConclusion('const app = express()\napp.listen(3000)', 'Parcel', sample), '')
   assert.equal(cleanConclusion('Okay, I will try to answer this as accurately as possible.', 'Parcel', sample), '')
+  const short = gemmaMessages({ name: 'Parcel', description: '', files: sample }, 800)
+  assert.match(short[1].content, /Parcel/)
+  assert.ok(short[1].content.length < 7000)
+})
+
+test('a private read picks a build this computer can run', () => {
+  const strong = gemmaPlans({ gpu: true, f16: true, memory: 8, cores: 8, isolated: true })
+  assert.equal(strong[0].device, 'webgpu')
+  assert.equal(strong[0].dtype, 'q4f16')
+  assert.equal(strong.at(-1).device, 'wasm')
+  assert.equal(strong.at(-1).dtype, 'q4')
+  const oldGpu = gemmaPlans({ gpu: true, f16: false, memory: 8, cores: 4, isolated: false })
+  assert.equal(oldGpu[0].dtype, 'q4')
+  assert.equal(oldGpu[0].threads, 1)
+  const small = gemmaPlans({ gpu: false, memory: 2, cores: 2, isolated: false })
+  assert.deepEqual(small.map((plan) => plan.device), ['wasm'])
+  assert.equal(small[0].budget, 800)
+  assert.equal(small[0].threads, 1)
 })
 
 test('a writing model cannot invent a percentage', () => {

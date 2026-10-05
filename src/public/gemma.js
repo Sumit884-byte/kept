@@ -1,26 +1,77 @@
 import { GEMMA_MODEL, cleanConclusion, gemmaMessages, generatedText } from './gemmaText.js'
 
-let enginePromise
+let cached
 
-async function createEngine() {
-  const { pipeline } = await import('https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.3.0')
-  const dtype = 'q4f16'
-  if (navigator.gpu) return pipeline('text-generation', GEMMA_MODEL, { dtype, device: 'webgpu' })
-  return pipeline('text-generation', GEMMA_MODEL, { dtype, device: 'wasm' })
+export function gemmaPlans({ gpu = false, f16 = false, memory = 0, cores = 2, isolated = false } = {}) {
+  const threads = isolated ? Math.max(1, Math.min(4, Number(cores) || 1)) : 1
+  const light = Number(memory) > 0 && Number(memory) < 4
+  const budget = light ? 800 : 1800
+  const plans = []
+  if (gpu && f16 && !light) plans.push({ device: 'webgpu', dtype: 'q4f16', threads, budget })
+  if (gpu) plans.push({ device: 'webgpu', dtype: 'q4', threads, budget })
+  plans.push({ device: 'wasm', dtype: 'q4', threads, budget })
+  return plans
+}
+
+export async function detectMachine() {
+  const nav = typeof navigator === 'undefined' ? null : navigator
+  let gpu = false
+  let f16 = false
+  if (nav?.gpu?.requestAdapter) {
+    try {
+      const adapter = await nav.gpu.requestAdapter()
+      gpu = Boolean(adapter)
+      f16 = Boolean(adapter?.features?.has?.('shader-f16'))
+    } catch {
+      gpu = false
+    }
+  }
+  return {
+    gpu,
+    f16,
+    memory: Number(nav?.deviceMemory) || 0,
+    cores: Number(nav?.hardwareConcurrency) || 2,
+    isolated: typeof crossOriginIsolated !== 'undefined' && crossOriginIsolated,
+  }
+}
+
+async function openEngine(plan) {
+  const key = `${plan.device}:${plan.dtype}:${plan.threads}`
+  if (cached?.key === key) return cached.engine
+  const { pipeline, env } = await import('https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.3.0')
+  const wasm = env?.backends?.onnx?.wasm
+  if (wasm) wasm.numThreads = plan.threads
+  const engine = await pipeline('text-generation', GEMMA_MODEL, {
+    dtype: plan.dtype,
+    device: plan.device,
+  })
+  cached = { key, engine }
+  return engine
+}
+
+async function sentence(engine, bundle, budget) {
+  const output = await engine(gemmaMessages(bundle, budget), { max_new_tokens: 40, do_sample: false })
+  return cleanConclusion(generatedText(output), bundle.name, bundle.files)
 }
 
 export function loadGemma() {
-  if (!enginePromise) {
-    enginePromise = createEngine().catch((error) => {
-      enginePromise = null
-      throw error
-    })
-  }
-  return enginePromise
+  return detectMachine().then((machine) => openEngine(gemmaPlans(machine)[0]))
 }
 
 export async function concludeWithGemma(bundle, generator) {
-  const run = generator || await loadGemma()
-  const output = await run(gemmaMessages(bundle), { max_new_tokens: 40, do_sample: false })
-  return cleanConclusion(generatedText(output), bundle.name, bundle.files)
+  if (generator) return sentence(generator, bundle, 1800)
+  const plans = gemmaPlans(await detectMachine())
+  let last = new Error('empty')
+  for (const plan of plans) {
+    try {
+      const engine = await openEngine(plan)
+      const text = await sentence(engine, bundle, plan.budget)
+      if (text) return text
+      cached = null
+    } catch (error) {
+      last = error
+      cached = null
+    }
+  }
+  throw last
 }
