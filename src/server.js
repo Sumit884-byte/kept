@@ -100,7 +100,7 @@ const MODEL_SCRIPTS = [
   'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.31.0-dev.20260914-8d85527a0/',
 ].join(' ')
 
-function contentSecurityPolicy() {
+function contentSecurityPolicy(embeddable = false) {
   const host = clerkFrontendHost(config.clerkPublishableKey)
   const clerkSource = host ? ` https://${host}` : ''
   return [
@@ -113,6 +113,9 @@ function contentSecurityPolicy() {
     `connect-src 'self' https://api.github.com ${MODEL_SCRIPTS} https://huggingface.co https://cdn-lfs.huggingface.co https://us.aws.cdn.hf.co https://eu.aws.cdn.hf.co https://cas-bridge.xethub.hf.co https://cas-server.xethub.hf.co https://clerk-telemetry.com${clerkSource}`,
     "frame-src 'self' https://challenges.cloudflare.com",
     "img-src 'self' data:",
+    "base-uri 'self'",
+    "object-src 'none'",
+    ...(embeddable ? [] : ["frame-ancestors 'self'"]),
   ].join('; ')
 }
 
@@ -324,7 +327,7 @@ export function buildApp() {
     res.setHeader('Referrer-Policy', 'no-referrer')
     res.setHeader(
       'Content-Security-Policy',
-      contentSecurityPolicy(),
+      contentSecurityPolicy(req.path.startsWith('/r/')),
     )
     next()
   })

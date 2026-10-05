@@ -5,6 +5,20 @@
   "outputDirectory": "src/public",
   "headers": [
     {
+      "source": "/(.*)",
+      "headers": [
+        { "key": "X-Content-Type-Options", "value": "nosniff" },
+        { "key": "Referrer-Policy", "value": "no-referrer" }
+      ]
+    },
+    {
+      "source": "/((?!r/).*)",
+      "headers": [
+        { "key": "X-Frame-Options", "value": "SAMEORIGIN" },
+        { "key": "Content-Security-Policy", "value": "frame-ancestors 'self'; base-uri 'self'; object-src 'none'" }
+      ]
+    },
+    {
       "source": "/styles.css",
       "headers": [{ "key": "Cache-Control", "value": "no-cache, must-revalidate" }]
     },
