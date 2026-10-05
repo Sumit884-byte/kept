@@ -464,3 +464,10 @@ test('the site copy stays in everyday language', () => {
   const hits = strings.filter((value) => banned.test(value))
   assert.deepEqual(hits, [])
 })
+
+test('a hook signature must be one lowercase-insensitive string header', () => {
+  const body = Buffer.from('{"zen":"ok"}')
+  const sig = `sha256=${createHmac('sha256', 'hook-secret').update(body).digest('hex')}`
+  assert.equal(verifyGithubSignature(body, sig.toUpperCase().replace('SHA256=', 'sha256='), 'hook-secret'), true)
+  assert.equal(verifyGithubSignature(body, [sig], 'hook-secret'), false)
+})
