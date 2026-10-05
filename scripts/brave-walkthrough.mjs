@@ -8,7 +8,6 @@ import { chromium } from 'playwright'
 import {
   BASE_DEFAULT,
   TIMING,
-  waitForBoot,
   waitForSample,
   waitForStudio,
   gotoApp,

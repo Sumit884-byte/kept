@@ -481,3 +481,10 @@ test('rate limit buckets are swept and proxies are only trusted in production', 
   process.env.NODE_ENV = saved.env
   process.env.TRUST_PROXY = saved.trust ?? ''
 })
+
+test('a line that opens with the project name keeps its subject', () => {
+  assert.deepEqual(uniqueLines(['Parcel is a web service.'], 'Parcel'), ['Parcel is a web service.'])
+  assert.deepEqual(uniqueLines(['Arka: Your terminal, upgraded.'], 'Arka'), ['Your terminal, upgraded.'])
+  assert.match(readableLine('Parcel is a web service. It handles drafts, send, and reminders.'), /drafts/)
+  assert.equal(readableLine('Supports formats e.g. CSV and JSON for exports.'), 'Supports formats e.g. CSV and JSON for exports.')
+})
