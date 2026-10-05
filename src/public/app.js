@@ -748,7 +748,9 @@ function viewDetail() {
         ${paperDownload(link.pdfUrl)}
         <button class="text-button" type="button" data-action="edit-paper">${esc(state.editing ? copy.studio.done : copy.studio.edit)}</button>
       </div>
-      <div class="paper-frame"><div id="paper-slot" data-paper-root>${paper(link.resume)}</div></div>
+      <div class="paper-frame">${state.editing
+        ? `<div id="paper-slot" data-paper-root>${paper(link.resume)}</div>`
+        : `<iframe class="pdf-view" src="${esc(link.pdfUrl)}" title="${esc(copy.detail.pdf)}"></iframe>`}</div>
     </div>
   </section>`
 }

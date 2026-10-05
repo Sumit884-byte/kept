@@ -358,6 +358,14 @@ h1 {
   container-type: inline-size;
 }
 
+.pdf-view {
+  display: block;
+  width: 100%;
+  height: calc(100cqi * 11 / 8.5);
+  border: 0;
+  background: #525659;
+}
+
 .paper-stack {
   display: flex;
   flex-direction: column;
