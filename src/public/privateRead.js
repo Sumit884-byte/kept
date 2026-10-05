@@ -27,12 +27,12 @@ async function githubFiles(token, read) {
   return files
 }
 
-export async function readPrivateLocally(reads, { preview, token, conclude = concludeWithGemma } = {}) {
+export async function readPrivateLocally(reads, { preview, tokens = {}, conclude = concludeWithGemma } = {}) {
   const readings = []
   for (const read of reads || []) {
     const files = preview
       ? (samplePrivate[read.fullName] || []).filter((file) => safePath(file.path))
-      : await githubFiles(token, read)
+      : tokens[read.fullName] ? await githubFiles(tokens[read.fullName], read) : []
     if (!files.length) continue
     let conclusion = ''
     try {

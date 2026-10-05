@@ -20,6 +20,7 @@ import { clerkFrontendHost } from './clerkHost.js'
 import { clerkClient, clerkMiddleware, getAuth } from '@clerk/express'
 import { updatedLabel } from './when.js'
 import { allow } from './limit.js'
+import { AppNotInstalled, readerTokens } from './githubApp.js'
 import { accountKind } from './public/accountBinding.js'
 import { startPoller, stopPoller } from './poller.js'
 import crypto from 'node:crypto'
@@ -639,7 +640,19 @@ export function buildApp() {
     res.setHeader('Cache-Control', 'no-store')
     if (usesSample(account)) return res.json({ preview: true })
     if (!account.can_read_private) throw new HttpError(403, copy.errors.needPrivate)
-    return res.json({ token: decrypt(account.token_ciphertext) })
+    if (!config.githubAppId || !config.githubAppPrivateKey) throw new HttpError(503, copy.errors.notReady)
+    const id = String(req.query.link || '')
+    if (!UUID.test(id)) throw new HttpError(404, copy.errors.missingLink)
+    const link = await db.getLinkForAccount(id, account.id)
+    if (!link) throw new HttpError(404, copy.errors.missingLink)
+    const { localReads } = await presentLink(link)
+    try {
+      return res.json({ tokens: await readerTokens(localReads.map((read) => read.fullName)) })
+    } catch (error) {
+      if (!(error instanceof AppNotInstalled)) throw error
+      const install = config.githubAppSlug ? `https://github.com/apps/${config.githubAppSlug}/installations/new` : ''
+      return res.status(409).json({ message: copy.errors.needAppInstall, install })
+    }
   }))
 
   app.post('/api/links/:id/local', wrap(async (req, res) => {
