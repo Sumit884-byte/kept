@@ -21,6 +21,7 @@ import { renderPublicPage } from '../src/publicPage.js'
 import { modelBase } from '../src/config.js'
 import { updatedLabel } from '../src/when.js'
 import { isLightPath, paintPerson, personFields, personOnly, projectCounts } from '../src/fast.js'
+import { accountKind, bindingFromAccount, sameBinding } from '../src/public/accountBinding.js'
 
 test('a badge-only writeup is treated as thin', () => {
   const result = assessReadme('# Wow\n\n![badge](https://img.shields.io/badge/build-passing)\n')
@@ -401,6 +402,16 @@ test('a shared page escapes the name', () => {
   })
   assert.match(html, /&lt;script&gt;/)
   assert.doesNotMatch(html, /<script>/)
+})
+
+test('a guest linked to GitHub is no longer a sample account', () => {
+  assert.deepEqual(accountKind({ github_id: 'preview:abc', preview: true }), { sample: true, connected: false })
+  assert.deepEqual(accountKind({ github_id: '4242', preview: true }), { sample: false, connected: true })
+  assert.deepEqual(accountKind({ github_id: 'clerk:user_1', preview: false }), { sample: false, connected: false })
+  const guest = bindingFromAccount({ login: 'sample', preview: true, githubConnected: false })
+  const linked = bindingFromAccount({ login: 'ada', preview: false, githubConnected: true })
+  assert.equal(sameBinding(guest, guest), true)
+  assert.equal(sameBinding(guest, linked), false)
 })
 
 test('dates are spoken plainly', () => {

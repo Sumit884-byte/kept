@@ -20,6 +20,7 @@ import { clerkFrontendHost } from './clerkHost.js'
 import { clerkClient, clerkMiddleware, getAuth } from '@clerk/express'
 import { updatedLabel } from './when.js'
 import { allow } from './limit.js'
+import { accountKind } from './public/accountBinding.js'
 import { startPoller, stopPoller } from './poller.js'
 import crypto from 'node:crypto'
 
@@ -83,7 +84,11 @@ function clerkOn() {
 }
 
 function hasGithub(account) {
-  return Boolean(account) && !account.preview && !String(account.github_id || '').startsWith('clerk:')
+  return accountKind(account).connected
+}
+
+function usesSample(account) {
+  return accountKind(account).sample
 }
 
 function contentSecurityPolicy() {
@@ -159,7 +164,7 @@ function presentAccount(account) {
     headline: account.headline,
     bio: account.bio || '',
     canReadPrivate: account.can_read_private,
-    preview: account.preview,
+    preview: usesSample(account),
     githubConnected: hasGithub(account),
     clerk: Boolean(account.clerk_user_id),
   }
@@ -260,8 +265,8 @@ function cleanFields(body) {
 }
 
 async function allowedRepos(account, visibility) {
-  if (!account.preview && !hasGithub(account)) throw new HttpError(409, copy.errors.connectWork)
-  if (account.preview) {
+  if (!usesSample(account) && !hasGithub(account)) throw new HttpError(409, copy.errors.connectWork)
+  if (usesSample(account)) {
     return listSampleProjects()
       .filter((project) => visibility === 'all' || !project.private)
       .map((project) => project.fullName)
@@ -519,10 +524,10 @@ export function buildApp() {
     const account = await requireAccount(req)
     const visibility = req.query.visibility === 'all' ? 'all' : 'public'
     try {
-      if (!account.preview && !hasGithub(account)) {
+      if (!usesSample(account) && !hasGithub(account)) {
         return res.json({ needGithub: true, projects: [] })
       }
-      if (account.preview) {
+      if (usesSample(account)) {
         const projects = listSampleProjects()
           .filter((project) => visibility === 'all' || !project.private)
           .map((project) => ({ ...project, updatedLabel: updatedLabel(project.pushedAt) }))
@@ -637,7 +642,7 @@ export function buildApp() {
   app.get('/api/github/reader', wrap(async (req, res) => {
     const account = await requireAccount(req)
     res.setHeader('Cache-Control', 'no-store')
-    if (account.preview) return res.json({ preview: true })
+    if (usesSample(account)) return res.json({ preview: true })
     if (!account.can_read_private) throw new HttpError(403, copy.errors.needPrivate)
     return res.json({ token: decrypt(account.token_ciphertext) })
   }))

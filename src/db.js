@@ -175,6 +175,7 @@ export async function migrate() {
   await query(`CREATE INDEX IF NOT EXISTS code_readings_lookup ON code_readings (link_id, full_name, time DESC)`)
   await query(`CREATE INDEX IF NOT EXISTS link_updates_lookup ON link_updates (link_id, time DESC)`)
   await query(`CREATE INDEX IF NOT EXISTS links_account ON links (account_id, updated_at DESC)`)
+  await query(`UPDATE accounts SET preview = FALSE WHERE preview = TRUE AND github_id NOT LIKE 'preview:%'`)
 }
 
 export async function upsertAccount(account) {
@@ -297,6 +298,7 @@ export async function attachGithub(id, account) {
       location = COALESCE(NULLIF(accounts.location, ''), NULLIF($9, '')),
       token_ciphertext = $10,
       can_read_private = $11,
+      preview = FALSE,
       updated_at = NOW()
      WHERE id = $1
      RETURNING *`,

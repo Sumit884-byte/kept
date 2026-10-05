@@ -7,6 +7,7 @@ import { interpret } from './analyze.js'
 import { cleanConclusion } from './public/gemmaText.js'
 import { composeResume } from './resume.js'
 import { tailorResume } from './tailor.js'
+import { accountKind } from './public/accountBinding.js'
 import { findSample, samplePerson } from './sample.js'
 
 const inflight = new Map()
@@ -35,8 +36,12 @@ function humanError(error) {
   return copy.errors.readFailed
 }
 
+function sampleAccount(account) {
+  return accountKind(account).sample
+}
+
 async function personNotes(account) {
-  if (account.preview) {
+  if (sampleAccount(account)) {
     return { profileText: samplePerson.profileReadme || '', pulls: samplePerson.pulls || [] }
   }
   if (!account.token_ciphertext || !account.login) return { profileText: account.profile_readme || '', pulls: [] }
@@ -69,8 +74,8 @@ async function writeResume(link, account, projects, reason) {
     name: profileName(link.display_name, account.login) || profileName(account.name, account.login) || '',
     email: link.email || account.email || '',
     location: link.location || account.location || '',
-    blog: account.preview ? '' : (account.blog || ''),
-    login: account.preview ? '' : account.login,
+    blog: sampleAccount(account) ? '' : (account.blog || ''),
+    login: sampleAccount(account) ? '' : account.login,
     bio: account.bio || '',
   }
   const prefs = {
@@ -207,7 +212,7 @@ async function runRefresh(id, opts) {
     }
     const outcomes = await mapLimit(repos, 4, async (fullName) => {
       try {
-        const wrote = account.preview
+        const wrote = sampleAccount(account)
           ? await refreshSample(link, fullName, mode)
           : await refreshGithub(link, account, fullName, watched.get(fullName), mode)
         noteProgress(wrote)

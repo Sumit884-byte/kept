@@ -1,6 +1,9 @@
+import { bindingFromAccount, sameBinding } from './accountBinding.js'
 import { copy } from '/copy.js'
 import { renderPaperHtml } from './paperHtml.js'
 import { fullNamesForRole } from '/rolePick.js'
+
+const BINDING_KEY = 'kept.binding'
 
 const authModule = () => import('./auth.js')
 let paperPagesModule = null
@@ -1147,9 +1150,78 @@ function deferExampleResume() {
   else setTimeout(run, 0)
 }
 
+function readStoredBinding() {
+  try {
+    const raw = localStorage.getItem(BINDING_KEY)
+    if (!raw) return null
+    const parsed = JSON.parse(raw)
+    if (!parsed || typeof parsed.login !== 'string') return null
+    return {
+      login: parsed.login,
+      preview: Boolean(parsed.preview),
+      githubConnected: Boolean(parsed.githubConnected),
+    }
+  } catch {
+    return null
+  }
+}
+
+function rememberBinding(account) {
+  const next = bindingFromAccount(account)
+  const prev = readStoredBinding()
+  try {
+    if (next) localStorage.setItem(BINDING_KEY, JSON.stringify(next))
+    else localStorage.removeItem(BINDING_KEY)
+  } catch {
+    // A private window can refuse storage. The session cookie still decides the account.
+  }
+  return { prev, next, changed: Boolean(prev && next && !sameBinding(prev, next)) }
+}
+
+function forgetBinding() {
+  try {
+    localStorage.removeItem(BINDING_KEY)
+  } catch {
+    // Storage can be unavailable. Leaving guest mode still clears the cookie.
+  }
+}
+
+function releaseSampleProjects() {
+  state.previewProjectPool = null
+  state.projects = []
+  state.projectsFor = ''
+  state.projectsLoadedFor = ''
+  state.counts = null
+  state.links = []
+  state.linksStamp = ''
+  state.needGithub = false
+  state.form = null
+  state.filledFor = ''
+  state.reposTouched = false
+  state.fillRepos = true
+}
+
+function accountFromBinding(binding) {
+  if (!binding?.githubConnected) return null
+  return {
+    account: {
+      login: binding.login,
+      name: binding.login,
+      preview: false,
+      githubConnected: true,
+    },
+    guest: false,
+  }
+}
+
 async function boot() {
+  const known = accountFromBinding(readStoredBinding())
+  if (known) state.me = known
   try {
     state.me = await loadBootMe()
+    const shift = rememberBinding(state.me?.account)
+    if (!state.me?.account) forgetBinding()
+    if (shift.changed) releaseSampleProjects()
     rememberPreviewProjects(state.me)
     const bootRoute = parse(location.pathname)
     if (bootRoute.name === 'studio' && guestSampleMode()) {
@@ -1239,6 +1311,7 @@ document.addEventListener('click', async (event) => {
     } catch {
       /* clear local session even if the server call failed */
     }
+    forgetBinding()
     state.me = { ...(state.me || {}), account: null, guest: false }
     state.previewProjectPool = null
     state.projects = []
@@ -1258,6 +1331,8 @@ document.addEventListener('click', async (event) => {
     try {
       const data = await api('/api/guest', { method: 'POST', body: {} })
       state.me = { ...(state.me || {}), account: data.account, guest: true }
+      const shift = rememberBinding(data.account)
+      if (shift.changed) releaseSampleProjects()
       rememberPreviewProjects(data)
       applyPreviewProjects('public')
       state.form = blankForm(data.account)

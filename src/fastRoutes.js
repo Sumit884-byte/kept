@@ -8,6 +8,7 @@ import { clerkSecret, lightSession, paintPerson, personFields, projectCounts, pu
 import { listRepos, profileName } from './github.js'
 import { listSampleProjects, samplePerson } from './sample.js'
 import { clearSessionCookie, readSessionCookie, writeSessionCookie } from './sessionCookie.js'
+import { accountKind } from './public/accountBinding.js'
 import { updatedLabel } from './when.js'
 import crypto from 'node:crypto'
 
@@ -21,8 +22,8 @@ function present(account) {
     headline: account.headline,
     bio: account.bio || '',
     canReadPrivate: account.can_read_private,
-    preview: account.preview,
-    githubConnected: !account.preview && !String(account.github_id || '').startsWith('clerk:'),
+    preview: accountKind(account).sample,
+    githubConnected: accountKind(account).connected,
     clerk: Boolean(account.clerk_user_id),
   }
 }
@@ -109,7 +110,7 @@ export async function readMe(req) {
     let account = await accountFromRequest(req)
     account = await rememberHeadline(account)
     const payload = { ...base, account: account ? present(account) : null }
-    if (account?.preview) Object.assign(payload, previewProjectPayload('all'))
+    if (account && accountKind(account).sample) Object.assign(payload, previewProjectPayload('all'))
     return payload
   } catch (error) {
     console.error('readMe failed', error.message)
@@ -182,10 +183,11 @@ export async function readProjects(req, visibility) {
     throw error
   }
   const scope = visibility === 'all' ? 'all' : 'public'
-  if (!account.preview && String(account.github_id || '').startsWith('clerk:')) {
+  const kind = accountKind(account)
+  if (!kind.sample && !kind.connected) {
     return { needGithub: true, projects: [], counts: projectCounts([]) }
   }
-  if (account.preview) {
+  if (kind.sample) {
     return previewProjectPayload(scope)
   }
   if (scope === 'all' && !account.can_read_private) {
