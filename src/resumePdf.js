@@ -1,3 +1,4 @@
+import './pdfFontTrace.js'
 import { renderToBuffer } from '@react-pdf/renderer'
 import { classicResumeDocument, TEMPLATE_ID } from './resumeTemplateClassic.js'
 

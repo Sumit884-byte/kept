@@ -19,7 +19,11 @@
   ],
   "functions": {
     "api/server.js": {
-      "maxDuration": 60
+      "maxDuration": 60,
+      "includeFiles": "node_modules/pdfkit/js/standard-fonts/**"
+    },
+    "api/example.js": {
+      "includeFiles": "node_modules/pdfkit/js/standard-fonts/**"
     }
   },
   "rewrites": [
