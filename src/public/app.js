@@ -1,23 +1,15 @@
 import { bindingFromAccount, sameBinding } from './accountBinding.js'
 import { copy } from '/copy.js'
-import { renderPaperHtml } from './paperHtml.js?v=paper'
+import { renderPaperHtml } from './paperHtml.js?v=edit'
 import { fullNamesForRole } from '/rolePick.js'
 
 const BINDING_KEY = 'kept.binding'
 
 const authModule = () => import('./auth.js')
-let paperPagesModule = null
 
-function fitPaperEdits(root = document) {
-  root.querySelectorAll('textarea.paper-edit').forEach((node) => {
-    node.style.height = 'auto'
-    node.style.height = `${node.scrollHeight}px`
-  })
-}
-
-function schedulePaperLayout() {
-  paperPagesModule ||= import('./paperPages.js?v=preview')
-  paperPagesModule.then((mod) => mod.schedulePaperLayout()).catch(() => {})
+function workLineText(node) {
+  const raw = node.isContentEditable ? node.textContent : node.value
+  return String(raw || '').replace(/\n+/g, ' ')
 }
 
 const state = {
@@ -910,10 +902,6 @@ function render() {
   document.title = copy.name
   maybeLoadProjects()
   updateCount()
-  if (state.editing) {
-    schedulePaperLayout()
-    fitPaperEdits()
-  }
 }
 
 async function ensureProjects(visibility) {
@@ -1428,18 +1416,6 @@ document.addEventListener('click', async (event) => {
   }
   if (action === 'edit-paper') {
     event.preventDefault()
-    if (!state.editing && state.current?.id) {
-      const id = state.current.id
-      try {
-        const link = await api(`/api/links/${id}`)
-        if (state.current?.id === id) {
-          state.current = link
-          state.form = formFromLink(link)
-        }
-      } catch {
-        // Keep the resume already on the page if the fresh read fails.
-      }
-    }
     state.editing = !state.editing
     render()
     return
@@ -1638,11 +1614,7 @@ function previewEditor(form) {
     resume: paintPerson(state.current.resume, body),
   }
   const slot = document.querySelector('#paper-slot')
-  if (slot && state.editing) {
-    slot.innerHTML = paper(state.current.resume)
-    schedulePaperLayout()
-    fitPaperEdits(slot)
-  }
+  if (slot && state.editing) slot.innerHTML = paper(state.current.resume)
   const title = document.querySelector('.split > div > h1')
   if (title) title.textContent = body.displayName || copy.name
 }
@@ -1674,8 +1646,7 @@ document.addEventListener('input', (event) => {
     const title = line.getAttribute('data-work-title')
     const index = Number(line.getAttribute('data-work-line'))
     const item = (state.current.resume.work || []).find((entry) => entry.title === title)
-    if (item?.lines) item.lines[index] = line.value
-    if (line.tagName === 'TEXTAREA') fitPaperEdits(line.parentElement)
+    if (item?.lines) item.lines[index] = workLineText(line)
     schedulePersonSave()
     return
   }
@@ -1806,15 +1777,10 @@ window.addEventListener('pageshow', (event) => {
   })
 })
 
-let paperResizeTimer = 0
-window.addEventListener('resize', () => {
-  clearTimeout(paperResizeTimer)
-  paperResizeTimer = setTimeout(() => {
-    if (state.editing) {
-      schedulePaperLayout()
-      fitPaperEdits()
-    }
-  }, 120)
+document.addEventListener('keydown', (event) => {
+  if (event.key !== 'Enter') return
+  if (!event.target.closest?.('[data-work-line]')) return
+  event.preventDefault()
 })
 
 boot()
