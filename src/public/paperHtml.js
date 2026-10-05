@@ -9,7 +9,7 @@ function projectBlock(item, esc, { editing }) {
     <h3>${esc(item.title)}${item.stars ? `<span class="star-count">${esc(item.stars)}</span>` : ''}</h3>
     ${item.url ? `<p class="paper-url">${esc(item.url)}</p>` : ''}
     <ul>${item.lines.map((line, index) => editing
-      ? `<li><input class="paper-edit" data-work-title="${esc(item.rawTitle)}" data-work-line="${index}" value="${esc(line)}"></li>`
+      ? `<li><textarea class="paper-edit" rows="1" data-work-title="${esc(item.rawTitle)}" data-work-line="${index}">${esc(line)}</textarea></li>`
       : `<li>${esc(line)}</li>`).join('')}</ul>
   </section>`
 }
