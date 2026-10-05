@@ -5,15 +5,7 @@
   "outputDirectory": "src/public",
   "headers": [
     {
-      "source": "/app.js",
-      "headers": [{ "key": "Cache-Control", "value": "no-cache, must-revalidate" }]
-    },
-    {
       "source": "/styles.css",
-      "headers": [{ "key": "Cache-Control", "value": "no-cache, must-revalidate" }]
-    },
-    {
-      "source": "/paperPages.js",
       "headers": [{ "key": "Cache-Control", "value": "no-cache, must-revalidate" }]
     },
     {
@@ -22,7 +14,7 @@
     },
     {
       "source": "/(.*\\.js)",
-      "headers": [{ "key": "Cache-Control", "value": "public, max-age=86400, stale-while-revalidate=604800" }]
+      "headers": [{ "key": "Cache-Control", "value": "no-cache, must-revalidate" }]
     }
   ],
   "functions": {
