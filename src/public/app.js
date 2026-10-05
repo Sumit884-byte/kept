@@ -9,7 +9,7 @@ const authModule = () => import('./auth.js')
 let paperPagesModule = null
 
 function schedulePaperLayout() {
-  paperPagesModule ||= import('./paperPages.js')
+  paperPagesModule ||= import('./paperPages.js?v=preview')
   paperPagesModule.then((mod) => mod.schedulePaperLayout()).catch(() => {})
 }
 
