@@ -6,3 +6,8 @@ node_modules/
 .env*
 blog.md
 debug/
+recordings/
+scripts/*walkthrough*
+scripts/*preview*
+scripts/layout-screenshots.mjs
+scripts/nav-audit.mjs
