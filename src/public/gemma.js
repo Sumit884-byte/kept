@@ -8,9 +8,9 @@ export function gemmaPlans({ gpu = false, f16 = false, memory = 0, cores = 2, is
   const light = Number(memory) > 0 && Number(memory) < 4
   const budget = light ? 800 : 1800
   const plans = []
-  if (gpu && f16 && !light) plans.push({ device: 'webgpu', dtype: 'q4f16', threads, budget })
-  if (gpu) plans.push({ device: 'webgpu', dtype: 'q4', threads, budget })
-  plans.push({ device: 'wasm', dtype: 'q4', threads, budget })
+  if (gpu && f16) plans.push({ device: 'webgpu', dtype: 'fp16', threads, budget })
+  if (gpu) plans.push({ device: 'webgpu', dtype: 'fp32', threads, budget })
+  plans.push({ device: 'wasm', dtype: 'fp32', threads, budget })
   return plans
 }
 
