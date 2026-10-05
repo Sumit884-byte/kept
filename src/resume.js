@@ -131,7 +131,8 @@ function trimBioSpam(text) {
   if (SOCIAL_CHAIN.test(clean) || (clean.match(/·/g) || []).length >= 2) {
     clean = clean.split(/\bPortfolio\b|\bLinkedIn\b|·/i)[0].trim()
   }
-  const sentence = clean.split(/(?<=[.!?])\s+/)[0] || clean
+  const [first = clean, second = ''] = clean.split(/(?<!\b(?:e\.g|i\.e|etc|vs|incl|approx)\.)(?<=[.!?])\s+/)
+  const sentence = first.length < 60 && second && first.length + second.length < 220 ? `${first} ${second}` : first
   return sentence.length > 220 ? `${sentence.slice(0, 217).trim()}…` : sentence
 }
 
@@ -235,7 +236,8 @@ function withoutTitle(line, title) {
   const name = String(title || '').trim()
   if (!name) return line
   const pattern = new RegExp(`^${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b[:\\s,-]*`, 'i')
-  return line.replace(pattern, '').trim()
+  const rest = line.replace(pattern, '').trim()
+  return /^[a-z]/.test(rest) ? line : rest
 }
 
 export function uniqueLines(lines, title = '') {
@@ -286,7 +288,7 @@ export function bulletsFor(project) {
   if (conclusion && conclusion !== description) lines.push(conclusion)
   const attention = attentionSentence(project.numbers)
   if (attention) lines.push(attention)
-  const stated = readableLine(statedLine(project))
+  const stated = readableLine(statedLine({ ...project, conclusion }))
   if (stated) lines.push(stated)
   return uniqueLines(lines, project.name).slice(0, 4)
 }

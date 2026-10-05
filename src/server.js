@@ -12,7 +12,7 @@ import { applyLocalReadings, refreshLink } from './jobs.js'
 import { exampleResume } from './example.js'
 import { accountFromRequest, createGuestSession, endKeptSession, savePerson, signedInAccount } from './fastRoutes.js'
 import { renderPdf, fileName } from './pdf.js'
-import { placeForks, readableResume, starLabel, withSkills, withStars } from './resume.js'
+import { placeForks, readableResume, withSkills, withStars } from './resume.js'
 import { renderPublicPage } from './publicPage.js'
 import { cleanConclusion } from './public/gemmaText.js'
 import { listSampleProjects, samplePerson } from './sample.js'
@@ -21,6 +21,7 @@ import { clerkClient, clerkMiddleware, getAuth } from '@clerk/express'
 import { updatedLabel } from './when.js'
 import { allow } from './limit.js'
 import { decodeCookieValue } from './sessionCookie.js'
+import { AppNotInstalled, readerTokens } from './githubApp.js'
 import { accountKind } from './public/accountBinding.js'
 import { startPoller, stopPoller } from './poller.js'
 import crypto from 'node:crypto'
@@ -92,17 +93,24 @@ function usesSample(account) {
   return accountKind(account).sample
 }
 
+// Keep in sync with the import in src/public/gemma.js and the ONNX runtime it pulls in.
+const MODEL_SCRIPTS = [
+  'https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.3.0',
+  'https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.3.0/',
+  'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.31.0-dev.20260914-8d85527a0/',
+].join(' ')
+
 function contentSecurityPolicy() {
   const host = clerkFrontendHost(config.clerkPublishableKey)
   const clerkSource = host ? ` https://${host}` : ''
   return [
     "default-src 'self'",
-    `script-src 'self' https://cdn.jsdelivr.net https://challenges.cloudflare.com${clerkSource} blob: 'wasm-unsafe-eval'`,
+    `script-src 'self' ${MODEL_SCRIPTS} https://challenges.cloudflare.com${clerkSource} blob: 'wasm-unsafe-eval'`,
     "worker-src 'self' blob:",
     "child-src 'self' blob:",
     "style-src 'self' https://fonts.googleapis.com",
     "font-src https://fonts.gstatic.com data:",
-    `connect-src 'self' https://api.github.com https://cdn.jsdelivr.net https://huggingface.co https://cdn-lfs.huggingface.co https://us.aws.cdn.hf.co https://eu.aws.cdn.hf.co https://cas-bridge.xethub.hf.co https://cas-server.xethub.hf.co https://clerk-telemetry.com${clerkSource}`,
+    `connect-src 'self' https://api.github.com ${MODEL_SCRIPTS} https://huggingface.co https://cdn-lfs.huggingface.co https://us.aws.cdn.hf.co https://eu.aws.cdn.hf.co https://cas-bridge.xethub.hf.co https://cas-server.xethub.hf.co https://clerk-telemetry.com${clerkSource}`,
     "frame-src 'self' https://challenges.cloudflare.com",
     "img-src 'self' data:",
   ].join('; ')
@@ -640,7 +648,19 @@ export function buildApp() {
     res.setHeader('Cache-Control', 'no-store')
     if (usesSample(account)) return res.json({ preview: true })
     if (!account.can_read_private) throw new HttpError(403, copy.errors.needPrivate)
-    return res.json({ token: decrypt(account.token_ciphertext) })
+    if (!config.githubAppId || !config.githubAppPrivateKey) throw new HttpError(503, copy.errors.notReady)
+    const id = String(req.query.link || '')
+    if (!UUID.test(id)) throw new HttpError(404, copy.errors.missingLink)
+    const link = await db.getLinkForAccount(id, account.id)
+    if (!link) throw new HttpError(404, copy.errors.missingLink)
+    const { localReads } = await presentLink(link)
+    try {
+      return res.json({ tokens: await readerTokens(localReads.map((read) => read.fullName)) })
+    } catch (error) {
+      if (!(error instanceof AppNotInstalled)) throw error
+      const install = config.githubAppSlug ? `https://github.com/apps/${config.githubAppSlug}/installations/new` : ''
+      return res.status(409).json({ message: copy.errors.needAppInstall, install })
+    }
   }))
 
   app.post('/api/links/:id/local', wrap(async (req, res) => {
