@@ -3,6 +3,7 @@ import { config } from './config.js'
 import { encrypt, readPayload, signPayload } from './cryptoBox.js'
 import * as db from './db.js'
 import * as github from './github.js'
+import { decodeCookieValue } from './sessionCookie.js'
 import { accountFromRequest } from './fastRoutes.js'
 
 export function authCookie(name, value, maxAge) {
@@ -33,7 +34,7 @@ function cookies(header) {
   for (const part of String(header || '').split(';')) {
     const index = part.indexOf('=')
     if (index === -1) continue
-    out[part.slice(0, index).trim()] = decodeURIComponent(part.slice(index + 1).trim())
+    out[part.slice(0, index).trim()] = decodeCookieValue(part.slice(index + 1).trim())
   }
   return out
 }

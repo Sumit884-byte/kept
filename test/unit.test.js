@@ -464,3 +464,10 @@ test('the site copy stays in everyday language', () => {
   const hits = strings.filter((value) => banned.test(value))
   assert.deepEqual(hits, [])
 })
+
+test('a malformed cookie value reads as empty instead of throwing', async () => {
+  const { decodeCookieValue, readSessionCookie } = await import('../src/sessionCookie.js')
+  assert.equal(decodeCookieValue('%E0%A4%A'), '')
+  assert.equal(decodeCookieValue('abc%20d'), 'abc d')
+  assert.equal(readSessionCookie({ headers: { cookie: 'kept_session=%E0%A4%A' } }), '')
+})

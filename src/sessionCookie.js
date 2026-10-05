@@ -1,10 +1,18 @@
 import { config } from './config.js'
 
+export function decodeCookieValue(value) {
+  try {
+    return decodeURIComponent(value)
+  } catch {
+    return ''
+  }
+}
+
 export function readSessionCookie(req) {
   const header = req.headers?.cookie || req.headers?.Cookie || ''
   const parts = String(Array.isArray(header) ? header.join(';') : header).split(';')
   const found = parts.map((part) => part.trim()).find((part) => part.startsWith('kept_session='))
-  return found ? decodeURIComponent(found.slice('kept_session='.length)) : ''
+  return found ? decodeCookieValue(found.slice('kept_session='.length)) : ''
 }
 
 export function writeSessionCookie(res, sessionId, maxAgeSeconds) {
