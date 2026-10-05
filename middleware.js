@@ -16,15 +16,6 @@ function lightPath(pathname, method) {
 
 const STATIC_EXAMPLE_SLUG = 'keptsample'
 
-function staticExampleRoute(pathname, method) {
-  return method === 'GET' && (
-    pathname === '/sample'
-    || pathname === '/example.pdf'
-    || pathname === `/r/${STATIC_EXAMPLE_SLUG}`
-    || pathname === `/r/${STATIC_EXAMPLE_SLUG}.pdf`
-  )
-}
-
 function appPath(pathname) {
   return pathname.startsWith('/api/')
     || pathname.startsWith('/github/')

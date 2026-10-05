@@ -14,8 +14,7 @@ function page({ title, body, statusNote }) {
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="preload" href="/styles.css" as="style">
   <link rel="stylesheet" href="/styles.css">
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,560;9..144,640&amp;family=Public+Sans:ital,wght@0,400;0,560;1,400&amp;display=swap" media="print" onload="this.media='all'">
-  <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,560;9..144,640&amp;family=Public+Sans:ital,wght@0,400;0,560;1,400&amp;display=swap"></noscript>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,560;9..144,640&amp;family=Public+Sans:ital,wght@0,400;0,560;1,400&amp;display=swap">
 </head>
 <body>
   <main class="public-main" id="main">

@@ -3,7 +3,7 @@
  */
 import { writeFile, mkdir } from 'node:fs/promises'
 import { chromium } from 'playwright'
-import { BASE_DEFAULT, runWalkthrough, settleUrl } from './walkthrough-steps.mjs'
+import { BASE_DEFAULT, runWalkthrough } from './walkthrough-steps.mjs'
 
 const BASE = (process.env.BASE || BASE_DEFAULT).replace(/\/$/, '')
 

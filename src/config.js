@@ -39,6 +39,15 @@ export const config = {
   get githubClientSecret() {
     return process.env.GITHUB_CLIENT_SECRET || ''
   },
+  get githubAppId() {
+    return process.env.GITHUB_APP_ID || ''
+  },
+  get githubAppPrivateKey() {
+    return (process.env.GITHUB_APP_PRIVATE_KEY || '').replace(/\\n/g, '\n')
+  },
+  get githubAppSlug() {
+    return process.env.GITHUB_APP_SLUG || ''
+  },
   get webhookSecret() {
     return process.env.WEBHOOK_SECRET || this.appSecret
   },
