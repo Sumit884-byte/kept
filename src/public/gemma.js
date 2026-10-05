@@ -8,8 +8,8 @@ export function gemmaPlans({ gpu = false, f16 = false, memory = 0, cores = 2, is
   const light = Number(memory) > 0 && Number(memory) < 4
   const budget = light ? 800 : 1800
   const plans = []
-  if (gpu && f16) plans.push({ device: 'webgpu', dtype: 'fp16', threads, budget })
-  if (gpu) plans.push({ device: 'webgpu', dtype: 'fp32', threads, budget })
+  if (gpu) plans.push({ device: 'webgpu', dtype: 'fp16', threads, budget })
+  if (gpu && !f16) plans.push({ device: 'webgpu', dtype: 'fp32', threads, budget })
   plans.push({ device: 'wasm', dtype: 'fp32', threads, budget })
   return plans
 }
@@ -20,7 +20,8 @@ export async function detectMachine() {
   let f16 = false
   if (nav?.gpu?.requestAdapter) {
     try {
-      const adapter = await nav.gpu.requestAdapter()
+      const adapter = await nav.gpu.requestAdapter({ powerPreference: 'high-performance' })
+        || await nav.gpu.requestAdapter()
       gpu = Boolean(adapter)
       f16 = Boolean(adapter?.features?.has?.('shader-f16'))
     } catch {

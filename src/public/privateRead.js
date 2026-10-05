@@ -1,4 +1,4 @@
-import { concludeWithGemma } from './gemma.js'
+import { concludeWithGemma } from './gemma.js?v=fp16'
 import { samplePrivate } from './samplePrivate.js'
 
 function safePath(filePath) {
