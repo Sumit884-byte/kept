@@ -20,6 +20,7 @@ import { clerkFrontendHost } from './clerkHost.js'
 import { clerkClient, clerkMiddleware, getAuth } from '@clerk/express'
 import { updatedLabel } from './when.js'
 import { allow } from './limit.js'
+import { decodeCookieValue } from './sessionCookie.js'
 import { AppNotInstalled, readerTokens } from './githubApp.js'
 import { accountKind } from './public/accountBinding.js'
 import { startPoller, stopPoller } from './poller.js'
@@ -50,7 +51,7 @@ function readCookies(req) {
   for (const part of String(req.headers.cookie || '').split(';')) {
     const index = part.indexOf('=')
     if (index === -1) continue
-    out[part.slice(0, index).trim()] = decodeURIComponent(part.slice(index + 1).trim())
+    out[part.slice(0, index).trim()] = decodeCookieValue(part.slice(index + 1).trim())
   }
   return out
 }
@@ -316,7 +317,7 @@ async function sendPdf(res, link, status = 200) {
 
 export function buildApp() {
   const app = express()
-  app.set('trust proxy', 1)
+  app.set('trust proxy', config.trustProxy)
   app.disable('x-powered-by')
   app.use((req, res, next) => {
     res.setHeader('X-Content-Type-Options', 'nosniff')
@@ -770,6 +771,10 @@ export function buildApp() {
     }
     if (error.type === 'entity.parse.failed') {
       res.status(400).json({ message: copy.errors.generic })
+      return
+    }
+    if (error.type === 'entity.too.large') {
+      res.status(413).json({ message: copy.errors.generic })
       return
     }
     console.error(error)

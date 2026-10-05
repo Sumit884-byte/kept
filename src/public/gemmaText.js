@@ -53,12 +53,16 @@ export function evidenceWords(files) {
 
 export function cleanConclusion(text, name = '', files = []) {
   const clean = String(text || '')
+    .replace(/[\u2018\u2019\u201B\u2032]/g, "'")
+    .replace(/[\u201C\u201D\u2033]/g, '"')
+    .replace(/[\u2013\u2014\u2212]/g, '-')
+    .replace(/\u2026/g, '...')
     .replace(/```[\s\S]*?```/g, ' ')
     .replace(/<[^>]+>/g, ' ')
     .replace(/\s+/g, ' ')
     .trim()
   if (!clean || clean.length < 12) return ''
-  if (/[^\t\n\r\x20-\x7E\u00A0-\u00FF]/.test(clean)) return ''
+  if (/[^\t\n\r\x20-\x7E\u00A0-\u00FF]/.test(clean.split(String(name || '')).join(''))) return ''
   if (/app\.listen|\bfunction\s*\(|\brequire\s*\(|=>|```|\?/.test(clean)) return ''
   if (ASSISTANT.test(clean) || /^(okay|sure|hi|hello)\b/i.test(clean)) return ''
   const cut = clean.length > 500 ? clean.slice(0, 500).replace(/\s+\S*$/, '').trim() : clean

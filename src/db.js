@@ -356,13 +356,27 @@ export async function attachGithub(id, account) {
   return result.rows[0] || null
 }
 
-export async function createSession(accountId) {
+export async function createSession(accountId, ttlSeconds = 14 * 24 * 60 * 60) {
   const id = sessionId()
   await query(
-    `INSERT INTO sessions (id, account_id, expires_at) VALUES ($1, $2, NOW() + INTERVAL '14 days')`,
-    [id, accountId],
+    `INSERT INTO sessions (id, account_id, expires_at) VALUES ($1, $2, NOW() + make_interval(secs => $3))`,
+    [id, accountId, ttlSeconds],
   )
   return id
+}
+
+export async function pruneGuests() {
+  await query('DELETE FROM sessions WHERE expires_at < NOW()')
+  const result = await query(
+    `DELETE FROM accounts a
+     WHERE a.preview = TRUE
+       AND a.github_id LIKE 'preview:%'
+       AND a.github_id <> 'preview:sample'
+       AND a.clerk_user_id IS NULL
+       AND a.created_at < NOW() - INTERVAL '1 day'
+       AND NOT EXISTS (SELECT 1 FROM sessions s WHERE s.account_id = a.id)`,
+  )
+  return result.rowCount
 }
 
 export async function getSession(id) {

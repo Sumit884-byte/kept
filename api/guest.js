@@ -1,6 +1,12 @@
 import { copy } from '../src/copy.js'
 import * as db from '../src/db.js'
 import { createGuestSession, endKeptSession } from '../src/fastRoutes.js'
+import { allow } from '../src/limit.js'
+
+function clientIp(req) {
+  const header = (name) => String(req.headers?.[name] || '').split(',')[0].trim()
+  return header('x-real-ip') || header('x-vercel-forwarded-for') || header('x-forwarded-for') || 'unknown'
+}
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -17,6 +23,10 @@ export default async function handler(req, res) {
       console.error('guest leave failed', error)
       res.status(500).json({ message: copy.errors.generic })
     }
+    return
+  }
+  if (!allow(`guest:${clientIp(req)}`, 10, 60_000)) {
+    res.status(429).json({ message: copy.errors.slowDown })
     return
   }
   try {
