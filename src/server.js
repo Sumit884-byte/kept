@@ -726,6 +726,7 @@ export function buildApp() {
     const raw = req.params.slug
     const asPdf = raw.endsWith('.pdf')
     const slug = asPdf ? raw.slice(0, -4) : raw
+    if (asPdf && !allow(`pdf:${clientIp(req)}`, 60, 60_000)) throw new HttpError(429, copy.errors.slowDown)
     if (slug === STATIC_EXAMPLE_SLUG) {
       const resume = exampleResume()
       if (asPdf) {

@@ -503,6 +503,16 @@ test('a hook signature must be one lowercase-insensitive string header', () => {
   assert.equal(verifyGithubSignature(body, [sig], 'hook-secret'), false)
 })
 
+test('the same resume renders its PDF once', async () => {
+  const { renderPdf } = await import('../src/pdf.js')
+  const resume = { name: 'Cache Check', summary: 'Same bytes twice.', contact: [], work: [], skills: [] }
+  const first = await renderPdf(resume)
+  const again = await renderPdf({ ...resume })
+  assert.equal(first, again)
+  const other = await renderPdf({ ...resume, summary: 'Different.' })
+  assert.notEqual(first, other)
+})
+
 test('a line that opens with the project name keeps its subject', () => {
   assert.deepEqual(uniqueLines(['Parcel is a web service.'], 'Parcel'), ['Parcel is a web service.'])
   assert.deepEqual(uniqueLines(['Arka: Your terminal, upgraded.'], 'Arka'), ['Your terminal, upgraded.'])
