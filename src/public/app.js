@@ -169,6 +169,7 @@ function applyPreviewProjects(visibility) {
 
 function needsProjectsLoad(scope) {
   if (!state.me?.account) return false
+  if (state.projectsError) return false
   if (guestSampleMode() && state.previewProjectPool?.length) return state.projectsLoadedFor !== scope
   if (projectsLoadStuck()) return true
   if (state.projectsLoading) return false
@@ -1012,12 +1013,14 @@ async function ensureProjects(visibility) {
       state.form = next
       if (ready && inScope.length) state.projectsOpen = true
     }
+    state.projectsLoading = false
+    state.projectsRetrying = false
     render()
   } finally {
-    if (seq === projectsLoadSeq) {
-      state.projectsLoading = false
-      state.projectsRetrying = false
-    }
+    if (seq !== projectsLoadSeq || (!state.projectsLoading && !state.projectsRetrying)) return
+    state.projectsLoading = false
+    state.projectsRetrying = false
+    render()
   }
 }
 
