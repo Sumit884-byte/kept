@@ -102,6 +102,7 @@ In the Render dashboard, set:
 | `LLM_MODEL` | `gemma-3-4b-it`. The private service runs Gemma 3 4B Instruct. |
 | `LLM_API_KEY` | Not used for the private model. Set it only if you point `LLM_BASE_URL` at a host that asks for a key. |
 | `POLL_INTERVAL_MS` | Optional. Defaults to 600000 (10 minutes). |
+| `TRUST_PROXY` | Optional. Proxy hops trusted for the client IP used by rate limits. Defaults to 1 in production, off otherwise. |
 | `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` | Clerk publishable key, if sign-in is on. |
 | `NEXT_PUBLIC_CLERK_SECRET_KEY` | Clerk secret key. |
 

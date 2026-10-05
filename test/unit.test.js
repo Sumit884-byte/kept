@@ -472,6 +472,23 @@ test('a malformed cookie value reads as empty instead of throwing', async () => 
   assert.equal(readSessionCookie({ headers: { cookie: 'kept_session=%E0%A4%A' } }), '')
 })
 
+test('rate limit buckets are swept and proxies are only trusted in production', async () => {
+  const { allow, bucketCount } = await import('../src/limit.js')
+  for (let i = 0; i < 10_001; i += 1) allow(`sweep:${i}`, 1, -1)
+  assert.ok(bucketCount() < 10_001)
+  const { config } = await import('../src/config.js')
+  const saved = { env: process.env.NODE_ENV, trust: process.env.TRUST_PROXY }
+  process.env.TRUST_PROXY = ''
+  process.env.NODE_ENV = 'development'
+  assert.equal(config.trustProxy, false)
+  process.env.NODE_ENV = 'production'
+  assert.equal(config.trustProxy, 1)
+  process.env.TRUST_PROXY = '2'
+  assert.equal(config.trustProxy, 2)
+  process.env.NODE_ENV = saved.env
+  process.env.TRUST_PROXY = saved.trust ?? ''
+})
+
 test('a line that opens with the project name keeps its subject', () => {
   assert.deepEqual(uniqueLines(['Parcel is a web service.'], 'Parcel'), ['Parcel is a web service.'])
   assert.deepEqual(uniqueLines(['Arka: Your terminal, upgraded.'], 'Arka'), ['Your terminal, upgraded.'])
