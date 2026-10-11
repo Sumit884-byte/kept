@@ -542,6 +542,8 @@ h1 {
 
 .public-paper { width: 100%; }
 
+.public-formats { margin-top: 0.85rem; font-size: 0.92rem; }
+
 .paper-edit {
   font: inherit;
   color: inherit;

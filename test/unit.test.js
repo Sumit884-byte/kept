@@ -619,3 +619,10 @@ test('the same resume is written as markdown, plain text and a data file', () =>
   )
   assert.match(resumeAs(resume, 'md').type, /^text\/markdown/)
 })
+
+test('a resume page links to its other versions', () => {
+  const page = renderPublicPage({ slug: 'abcdefghij', resume: exampleResume() })
+  assert.match(page, /href="\/r\/abcdefghij\.md">Markdown</)
+  assert.match(page, /href="\/r\/abcdefghij\.txt">Plain text</)
+  assert.match(page, /href="\/r\/abcdefghij\.json">Data file</)
+})

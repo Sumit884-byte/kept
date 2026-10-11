@@ -1,5 +1,5 @@
 import { bindingFromAccount, sameBinding } from './accountBinding.js'
-import { copy } from '/copy.js'
+import { copy } from '/copy.js?v=formats'
 import { renderPaperHtml } from './paperHtml.js?v=edit'
 import { fullNamesForRole } from '/rolePick.js'
 
@@ -723,6 +723,7 @@ function viewDetail() {
       </div>
       <p class="help">${esc(copy.detail.same)}</p>
       <p><a href="${esc(link.pageUrl)}">${esc(copy.detail.page)}</a></p>
+      <p class="quiet">${esc(copy.detail.also)} ${Object.entries(copy.public.formats).map(([format, label]) => `<a href="${esc(link.pageUrl)}.${esc(format)}">${esc(label)}</a>`).join(' · ')}</p>
       <form id="editor">
         ${fields(values)}
         <h2 class="section-label">${esc(copy.studio.projects)}</h2>
