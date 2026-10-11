@@ -814,3 +814,49 @@ test('a job posting is compared with what this version shows', async () => {
   assert.equal(leadSentence(['React', 'Go', 'REST']), 'Lead with React, Go and REST.')
   assert.equal(leadSentence([]), '')
 })
+
+test('a brief can say what to lead with', async () => {
+  const { leadPhrases, neverPhrases } = await import('../src/brief.js')
+  const { leadSentence } = await import('../src/postingMatch.js')
+  assert.deepEqual(leadPhrases('Lead with interface work and the results. Leave out internal tooling.'), ['interface', 'results'])
+  assert.deepEqual(leadPhrases(leadSentence(['Node.js', 'C++', 'C#', '.NET', 'CI/CD', 'Machine learning'])), ['Node.js', 'C++', 'C#', '.NET', 'CI/CD', 'Machine learning'])
+  for (const [brief, phrases] of [
+    ['First person. Lead with Node.js and Go.', ['Node.js', 'Go']],
+    ['- First person\n- Lead with Go', ['Go']],
+    ['Keep it short and lead with the billing work.', ['billing']],
+    ['First person, lead with Go.', ['Go']],
+    ['You should lead with Go.', ['Go']],
+    ['Please always lead with Go', ['Go']],
+    ['Lead with React. Lead with Go.', ['React', 'Go']],
+    ['Lead with Go.\r\nFirst person.', ['Go']],
+    ['First person.', []],
+    ["Don't lead with PHP.", []],
+    ['Do not lead with the PHP projects. First person.', []],
+    ['Never lead with PHP', []],
+    ['You should not lead with Go.', []],
+    ["I'm an engineering lead with a focus on platform and data work.", []],
+  ]) assert.deepEqual(leadPhrases(brief), phrases, brief)
+  const banned = 'Never mention bakery'
+  assert.deepEqual(neverPhrases(`${banned}\n${leadSentence(['Go', 'PostgreSQL'])}`), neverPhrases(banned))
+
+  const projects = [
+    { name: 'alpha', fullName: 'm/alpha', description: 'A static site for a bakery', conclusion: 'Alpha is a static site for a bakery.', highlights: [], language: 'HTML', numbers: { stars: 30 } },
+    { name: 'beta', fullName: 'm/beta', description: 'A Django backend that keeps reports in PostgreSQL for the finance team', conclusion: 'Beta keeps reports in PostgreSQL for the finance team.', highlights: [], language: 'Python', numbers: {} },
+    { name: 'gamma', fullName: 'm/gamma', description: 'A backend queue worker', conclusion: 'Gamma is a queue worker.', highlights: [], language: 'Go', numbers: {} },
+  ]
+  const written = (prefs) => composeResume({ person: { name: 'Mira' }, projects, prefs }).work.map((item) => item.title)
+  assert.deepEqual(written({ roleTarget: '', instructions: '' }), ['alpha', 'beta', 'gamma'])
+  assert.deepEqual(written({ roleTarget: '', instructions: leadSentence(['PostgreSQL']) }), ['beta', 'alpha', 'gamma'])
+  assert.deepEqual(written({ roleTarget: '', instructions: leadSentence(['Go']) }), ['gamma', 'alpha', 'beta'])
+  assert.deepEqual(written({ roleTarget: '', instructions: 'Do not lead with Go.' }), ['alpha', 'beta', 'gamma'])
+  assert.deepEqual(written({ roleTarget: '', instructions: `${banned}\n${leadSentence(['Go'])}` }), ['gamma', 'beta'])
+
+  const forRole = async (instructions) => {
+    const prefs = { roleTarget: 'Backend engineer', instructions }
+    const tailored = await tailorResume(composeResume({ person: { name: 'Mira' }, projects, prefs }), projects, prefs)
+    return tailored.work.map((item) => item.title)
+  }
+  assert.deepEqual(await forRole(''), ['beta', 'gamma'])
+  assert.deepEqual(await forRole(leadSentence(['Go'])), ['gamma', 'beta'])
+  assert.deepEqual(await forRole(leadSentence(['Kubernetes'])), ['beta', 'gamma'])
+})

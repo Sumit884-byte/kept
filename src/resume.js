@@ -2,7 +2,8 @@ import { plainWriting } from './analyze.js'
 import { copy } from './copy.js'
 import { isProfileReadmeProject } from './projectKinds.js'
 import { attentionSentence, joinList } from './phrases.js'
-import { briefTokens, containsPhrase, neverPhrases, wantsFirstPerson } from './brief.js'
+import { briefTokens, containsPhrase, leadPhrases, neverPhrases, wantsFirstPerson } from './brief.js'
+import { resumeEvidence, shows } from './postingMatch.js'
 import { skillsFor } from './skills.js'
 
 export function experienceLines(value) {
@@ -57,6 +58,21 @@ export function contributionsForRole(projects, pulls, role) {
   return items.slice(0, 4)
 }
 
+// "Lead with …" in the brief lists the work that shows those things first. Everything else keeps its order.
+export function leadFirst(work, projects, instructions) {
+  const phrases = leadPhrases(instructions)
+  if (!phrases.length || !Array.isArray(work) || work.length < 2) return work
+  const byName = new Map((projects || []).map((project) => [String(project.name || '').toLowerCase(), project]))
+  return work
+    .map((item, index) => {
+      const project = byName.get(String(item.title || '').toLowerCase())
+      const text = resumeEvidence({ work: [item] }, project ? [project] : [])
+      return { item, index, score: phrases.filter((phrase) => shows(phrase, text)).length }
+    })
+    .sort((a, b) => b.score - a.score || a.index - b.index)
+    .map((row) => row.item)
+}
+
 export function finishSections(resume, projects, prefs = {}) {
   if (!resume) return resume
   const kept = new Set((resume.work || []).map((item) => item.title))
@@ -77,7 +93,8 @@ export function finishSections(resume, projects, prefs = {}) {
     .filter((line) => !containsPhrase(line, banned))
   const experience = experienceLines(prefs.experience ?? resume.experience)
     .filter((line) => !containsPhrase(line, banned))
-  return { ...resume, skills, contributions, education, experience }
+  const work = leadFirst(resume.work, projects, prefs.instructions)
+  return { ...resume, ...(work ? { work } : {}), skills, contributions, education, experience }
 }
 
 function trimText(text, max) {
