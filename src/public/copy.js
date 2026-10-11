@@ -111,6 +111,11 @@ export const copy = {
     brief: 'How should this version be written?',
     briefHelp: 'Write it as if you were briefing a careful person. Name what to emphasize and what to leave out. This brief belongs to this link only.',
     briefPlaceholder: 'Lead with interface work and the results. Leave out internal tooling. First person. Never mention invoices.',
+    look: 'How it looks',
+    looks: {
+      classic: { title: 'Classic', body: 'A green band behind your name and marked headings.' },
+      plain: { title: 'Plain', body: 'Black on white in a book typeface. It prints well and fits a little more on a page.' },
+    },
     create: 'Create my link',
     creating: 'Reading your projects…',
   },

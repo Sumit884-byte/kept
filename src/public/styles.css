@@ -491,6 +491,8 @@ h1 {
 
 .paper-plain .paper-contact span + span::before { content: "  |  "; }
 
+.look-row { grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr)); margin-bottom: 1.5rem; }
+
 .paper-classic h3 .star-count {
   font-weight: 400;
   font-size: 0.88em;
