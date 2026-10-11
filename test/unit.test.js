@@ -671,3 +671,19 @@ test('open counts read as a plain sentence', () => {
   assert.equal(updatedLabel('2025-01-01T12:00:00Z', now), 'Updated 2 years ago')
   assert.equal(updatedLabel('', now), '')
 })
+
+test('the plain look draws the same outline in a serif face', async () => {
+  const resume = { ...exampleResume(), liveUrl: PDF_LINK }
+  const classic = await renderPdf(resume)
+  const plain = await renderPdf({ ...resume, template: 'plain' })
+  const unknown = await renderPdf({ ...resume, template: 'neon' })
+  assert.match(classic.toString('latin1'), /Helvetica/)
+  assert.doesNotMatch(classic.toString('latin1'), /Times-Roman/)
+  assert.match(plain.toString('latin1'), /Times-Roman/)
+  assert.doesNotMatch(plain.toString('latin1'), /Helvetica/)
+  assert.match(unknown.toString('latin1'), /Helvetica/)
+  assert.equal(countPdfPages(plain), 1)
+  const words = (buffer) => pdfPageTexts(buffer).flat().filter((text) => /[A-Za-z]{3}/.test(text) && !text.includes('@'))
+  assert.deepEqual(words(plain), words(classic))
+  for (const count of [8, 24, 28]) assert.deepEqual(await loneHeadings('plain', count), [])
+})
