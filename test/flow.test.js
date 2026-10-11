@@ -32,6 +32,7 @@ test('a sample link is written from tiger history', async (t) => {
   const names = await db.hypertableNames()
   assert.ok(names.includes('project_signals'))
   assert.ok(names.includes('code_readings'))
+  assert.ok(names.includes('link_opens'))
   const app = buildApp()
   const server = app.listen(0, '127.0.0.1')
   await new Promise((resolve) => server.once('listening', resolve))
@@ -125,6 +126,31 @@ test('a sample link is written from tiger history', async (t) => {
     const noSuch = await fetch(`${base}/r/zzzzzzzzzz.txt`)
     assert.equal(noSuch.status, 404)
     assert.match(await noSuch.text(), /does not exist/)
+    const opened = () => db.query(
+      'SELECT format, count(*)::int AS n FROM link_opens WHERE link_id = $1 GROUP BY format ORDER BY format',
+      [first.id],
+    ).then((res) => res.rows)
+    assert.deepEqual(await opened(), [])
+    const visitor = { 'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36' }
+    for (let i = 0; i < 21; i += 1) {
+      await fetch(`${base}/r/${ready.slug}.txt`, { headers: { ...visitor, Cookie: session } })
+    }
+    assert.deepEqual(await opened(), [])
+    for (const ending of ['', '.pdf', '.md', '.txt', '.json']) {
+      await fetch(`${base}/r/${ready.slug}${ending}`, { headers: visitor })
+    }
+    const once = ['json', 'md', 'page', 'pdf', 'txt'].map((format) => ({ format, n: 1 }))
+    assert.deepEqual(await opened(), once)
+    await fetch(`${base}/r/${ready.slug}.pdf`, { headers: { ...visitor, Cookie: session } })
+    await fetch(`${base}/r/${ready.slug}`, { headers: { 'User-Agent': 'Slackbot-LinkExpanding 1.0' } })
+    await fetch(`${base}/r/${ready.slug}`, { method: 'HEAD', headers: visitor })
+    await fetch(`${base}/r/zzzzzzzzzz`, { headers: visitor })
+    assert.deepEqual(await opened(), once)
+    const busy = crypto.randomUUID()
+    for (let i = 0; i < 35; i += 1) await db.recordOpen(busy, 'page')
+    const kept = await db.query('SELECT count(*)::int AS n FROM link_opens WHERE link_id = $1', [busy])
+    await db.query('DELETE FROM link_opens WHERE link_id = $1', [busy])
+    assert.equal(kept.rows[0].n, 30)
     const sample = await fetch(`${base}/sample`, { redirect: 'manual' })
     assert.equal(sample.status, 302)
     const location = sample.headers.get('location')
@@ -144,6 +170,7 @@ test('a sample link is written from tiger history', async (t) => {
       await db.query('DELETE FROM project_signals WHERE link_id IN (SELECT id FROM links WHERE account_id = $1)', [id])
       await db.query('DELETE FROM code_readings WHERE link_id IN (SELECT id FROM links WHERE account_id = $1)', [id])
       await db.query('DELETE FROM link_updates WHERE link_id IN (SELECT id FROM links WHERE account_id = $1)', [id])
+      await db.query('DELETE FROM link_opens WHERE link_id IN (SELECT id FROM links WHERE account_id = $1)', [id])
       await db.query('DELETE FROM accounts WHERE id = $1', [id])
     }
     await new Promise((resolve) => server.close(resolve))

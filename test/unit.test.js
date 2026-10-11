@@ -626,3 +626,32 @@ test('a resume page links to its other versions', () => {
   assert.match(page, /href="\/r\/abcdefghij\.txt">Plain text</)
   assert.match(page, /href="\/r\/abcdefghij\.json">Data file</)
 })
+
+test('a link unfurler or a script is not counted as a reader', async () => {
+  const { isAutomated } = await import('../src/automated.js')
+  const people = [
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1',
+    'Mozilla/5.0 (X11; Linux x86_64; rv:131.0) Gecko/20100101 Firefox/131.0',
+    'Mozilla/5.0 (Linux; Android 11; CUBOT NOTE 20 PRO Build/RP1A; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/120.0.0.0 Mobile Safari/537.36 [LinkedInApp]',
+  ]
+  const machines = [
+    '',
+    'Slackbot-LinkExpanding 1.0 (+https://api.slack.com/robots)',
+    'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)',
+    'Mozilla/5.0 (compatible; Bluesky Cardyb/1.1; +mailto:support@bsky.app)',
+    'facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)',
+    'WhatsApp/2.23.20.0 A',
+    'curl/8.7.1',
+    'python-requests/2.32.3',
+    'Python/3.11 aiohttp/3.9.5',
+    'node',
+    'axios/1.7.2',
+    'okhttp/4.12.0',
+    'Java/17.0.2',
+    'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/120.0.0.0 Safari/537.36',
+  ]
+  for (const agent of people) assert.equal(isAutomated(agent), false, agent)
+  for (const agent of machines) assert.equal(isAutomated(agent), true, agent)
+  assert.equal(isAutomated(undefined), true)
+})

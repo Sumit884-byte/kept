@@ -169,12 +169,21 @@ export async function migrate() {
       reason TEXT NOT NULL
     )
   `)
+  await query(`
+    CREATE TABLE IF NOT EXISTS link_opens (
+      time TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      link_id UUID NOT NULL,
+      format TEXT NOT NULL
+    )
+  `)
   await hypertable('project_signals')
   await hypertable('code_readings')
   await hypertable('link_updates')
+  await hypertable('link_opens')
   await query(`CREATE INDEX IF NOT EXISTS project_signals_lookup ON project_signals (link_id, full_name, time DESC)`)
   await query(`CREATE INDEX IF NOT EXISTS code_readings_lookup ON code_readings (link_id, full_name, time DESC)`)
   await query(`CREATE INDEX IF NOT EXISTS link_updates_lookup ON link_updates (link_id, time DESC)`)
+  await query(`CREATE INDEX IF NOT EXISTS link_opens_lookup ON link_opens (link_id, time DESC)`)
   await query(`CREATE INDEX IF NOT EXISTS links_account ON links (account_id, updated_at DESC)`)
   await query(`UPDATE accounts SET preview = FALSE WHERE preview = TRUE AND github_id NOT LIKE 'preview:%'`)
 }
@@ -489,6 +498,7 @@ export async function deleteLink(id, accountId) {
     await client.query('DELETE FROM project_signals WHERE link_id = $1', [id])
     await client.query('DELETE FROM code_readings WHERE link_id = $1', [id])
     await client.query('DELETE FROM link_updates WHERE link_id = $1', [id])
+    await client.query('DELETE FROM link_opens WHERE link_id = $1', [id])
     await client.query('DELETE FROM links WHERE id = $1', [id])
     await client.query('COMMIT')
     return true
@@ -626,6 +636,20 @@ export async function setError(id, message) {
 
 export async function addUpdate(linkId, reason) {
   await query('INSERT INTO link_updates (time, link_id, reason) VALUES (NOW(), $1, $2)', [linkId, reason])
+}
+
+const OPENS_A_MINUTE = 30
+
+// The ceiling is checked in the insert itself, so it holds across every running copy of the service.
+export async function recordOpen(linkId, format) {
+  await query(
+    `INSERT INTO link_opens (time, link_id, format)
+     SELECT NOW(), $1::uuid, $2::text
+     WHERE (
+       SELECT count(*) FROM link_opens WHERE link_id = $1::uuid AND time > NOW() - INTERVAL '1 minute'
+     ) < $3`,
+    [linkId, format, OPENS_A_MINUTE],
+  )
 }
 
 export async function latestReason(linkId) {
