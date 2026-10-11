@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { createHmac } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import test from 'node:test'
+import { inflateSync } from 'node:zlib'
 import { assessReadme, actionsFrom, humanAction, interpret } from '../src/analyze.js'
 import { applyHistory } from '../src/history.js'
 import { enhancementSentence, soften } from '../src/phrases.js'
@@ -514,4 +515,49 @@ test('a line that opens with the project name keeps its subject', () => {
   assert.deepEqual(uniqueLines(['Arka: Your terminal, upgraded.'], 'Arka'), ['Your terminal, upgraded.'])
   assert.match(readableLine('Parcel is a web service. It handles drafts, send, and reminders.'), /drafts/)
   assert.equal(readableLine('Supports formats e.g. CSV and JSON for exports.'), 'Supports formats e.g. CSV and JSON for exports.')
+})
+
+const PDF_LINK = 'https://kept.example/r/abcdefghij.pdf'
+const PDF_HEADINGS = new Set(['EXPERIENCE', 'EDUCATION', 'SKILLS', 'RELEVANT WORKS', 'CONTRIBUTIONS'])
+
+// The text of each page of a PDF, in the order it was drawn.
+function pdfPageTexts(buffer) {
+  const raw = buffer.toString('latin1')
+  const pages = []
+  for (const found of raw.matchAll(/<<([^>]*(?:>(?!>)[^>]*)*)>>\s*stream\r?\n/g)) {
+    const length = Number((found[1].match(/\/Length (\d+)/) || [])[1])
+    if (!length) continue
+    const start = found.index + found[0].length
+    let drawn
+    try {
+      drawn = inflateSync(buffer.subarray(start, start + length)).toString('latin1')
+    } catch {
+      continue
+    }
+    if (!/\bBT\b/.test(drawn)) continue
+    pages.push([...drawn.matchAll(/\[((?:<[0-9a-fA-F]*>|[^\]])*)\]\s*TJ/g)].map((run) => (
+      Buffer.from([...run[1].matchAll(/<([0-9a-fA-F]*)>/g)].map((part) => part[1]).join(''), 'hex').toString('latin1')
+    )))
+  }
+  return pages
+}
+
+// The headings that end a page with nothing under them, in a resume long enough to need a second page.
+async function loneHeadings(template, experienceCount) {
+  const line = 'Rebuilt the invoice export so a month of records downloads in seconds instead of minutes for every shop.'
+  const pages = pdfPageTexts(await renderPdf({
+    ...exampleResume(),
+    template,
+    liveUrl: PDF_LINK,
+    experience: Array.from({ length: experienceCount }, (_, index) => `Company ${index + 1}, engineer, ${2000 + index}: shipped the thing people asked for`),
+    work: ['Ledger', 'Parcel', 'Relay'].map((title) => ({ title, url: `github.com/northwind/${title.toLowerCase()}`, stars: 3, lines: [line, line] })),
+  }))
+  assert.ok(pages.length > 1)
+  return pages.slice(0, -1)
+    .map((page) => page.filter((text) => text.trim() && text !== PDF_LINK).pop())
+    .filter((last) => PDF_HEADINGS.has(last))
+}
+
+test('a section heading stays on the page of its first entry', async () => {
+  for (const count of [5, 24, 29]) assert.deepEqual(await loneHeadings('classic', count), [])
 })
