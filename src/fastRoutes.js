@@ -9,7 +9,7 @@ import { listRepos, profileName } from './github.js'
 import { listSampleProjects, samplePerson } from './sample.js'
 import { clearSessionCookie, readSessionCookie, writeSessionCookie } from './sessionCookie.js'
 import { accountKind } from './public/accountBinding.js'
-import { updatedLabel } from './when.js'
+import { opensShort, updatedLabel } from './when.js'
 import crypto from 'node:crypto'
 
 function present(account) {
@@ -221,6 +221,7 @@ export async function readLinks(req) {
     throw error
   }
   const links = await db.listLinks(account.id)
+  const opens = await db.openCounts(links.map((link) => link.id))
   return {
     links: links.map((link) => ({
       id: link.id,
@@ -229,6 +230,7 @@ export async function readLinks(req) {
       status: link.status,
       lastError: link.last_error || '',
       refreshedLabel: link.last_refreshed_at ? updatedLabel(link.last_refreshed_at) : '',
+      opensLabel: opensShort(opens.get(link.id)),
       pdfUrl: `${config.publicUrl}/r/${link.slug}.pdf`,
     })),
   }

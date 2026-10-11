@@ -141,6 +141,8 @@ export const copy = {
     waiting: 'Reading your projects and writing the resume.',
     slow: 'This is taking longer than usual.',
     same: 'You can keep sending this same link.',
+    unopened: 'Nobody has opened this link yet.',
+    opensHelp: 'Your own visits are left out while you are signed in here.',
     readingPrivate: 'Reading a private project on this computer.',
     privateMissed: 'A private project could not be read on this computer. The rest of the resume is ready.',
   },

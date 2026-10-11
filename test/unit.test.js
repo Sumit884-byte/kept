@@ -24,7 +24,7 @@ import { samplePerson, sampleProjects } from '../src/sample.js'
 import { renderPublicPage } from '../src/publicPage.js'
 import { resumeAs, resumeJson, resumeMarkdown, resumePlainText } from '../src/resumeText.js'
 import { modelBase } from '../src/config.js'
-import { updatedLabel } from '../src/when.js'
+import { opensLabel, opensShort, updatedLabel } from '../src/when.js'
 import { isLightPath, paintPerson, personFields, personOnly, projectCounts } from '../src/fast.js'
 import { accountKind, bindingFromAccount, githubConnectPlan, sameBinding } from '../src/public/accountBinding.js'
 
@@ -654,4 +654,20 @@ test('a link unfurler or a script is not counted as a reader', async () => {
   for (const agent of people) assert.equal(isAutomated(agent), false, agent)
   for (const agent of machines) assert.equal(isAutomated(agent), true, agent)
   assert.equal(isAutomated(undefined), true)
+})
+
+test('open counts read as a plain sentence', () => {
+  const now = Date.parse('2026-10-11T12:00:00Z')
+  assert.equal(opensLabel(null, now), '')
+  assert.equal(opensLabel({ total: 0 }, now), '')
+  assert.equal(opensLabel({ total: 1, week: 1, last: '2026-10-11T09:00:00Z' }, now), 'Opened once, all in the last 7 days. Last opened today.')
+  assert.equal(opensLabel({ total: 14, week: 3, last: '2026-10-10T09:00:00Z' }, now), 'Opened 14 times, 3 in the last 7 days. Last opened yesterday.')
+  assert.equal(opensLabel({ total: 5000, week: 1200, last: '2026-10-11T09:00:00Z' }, now), 'Opened 5,000 times, 1,200 in the last 7 days. Last opened today.')
+  assert.equal(opensLabel({ total: 1200, week: 0, last: '2026-08-01T09:00:00Z' }, now), 'Opened 1,200 times. Last opened 2 months ago.')
+  assert.equal(opensShort({ total: 2 }), 'Opened 2 times')
+  assert.equal(opensShort(undefined), '')
+  assert.equal(updatedLabel('2026-10-06T12:00:00Z', now), 'Updated 5 days ago')
+  assert.equal(updatedLabel('2026-10-11T12:00:00Z', now), 'Updated today')
+  assert.equal(updatedLabel('2025-01-01T12:00:00Z', now), 'Updated 2 years ago')
+  assert.equal(updatedLabel('', now), '')
 })
