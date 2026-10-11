@@ -1,6 +1,14 @@
 import { copy } from './copy.js'
 import { escapeHtml } from './escape.js'
 import { renderPaperHtml } from './paperHtml.js'
+import { TEXT_FORMATS } from './resumeText.js'
+
+function formatLinks(slug) {
+  const links = TEXT_FORMATS
+    .map((format) => `<a href="/r/${escapeHtml(slug)}.${format}">${escapeHtml(copy.public.formats[format])}</a>`)
+    .join(' · ')
+  return `<p class="public-formats quiet">${escapeHtml(copy.public.also)} ${links}</p>`
+}
 
 function page({ title, body, statusNote }) {
   return `<!DOCTYPE html>
@@ -51,6 +59,7 @@ export function renderPublicPage(link) {
         </div>
       ${paper.replace('class="paper paper-classic"', 'class="paper paper-classic public-paper"')}
       </div>
-      <p class="public-actions"><a class="button" href="/r/${escapeHtml(link.slug)}.pdf" target="_blank" rel="noopener">${escapeHtml(copy.public.open)}</a></p>`,
+      <p class="public-actions"><a class="button" href="/r/${escapeHtml(link.slug)}.pdf" target="_blank" rel="noopener">${escapeHtml(copy.public.open)}</a></p>
+      ${formatLinks(link.slug)}`,
   })
 }
