@@ -48,7 +48,7 @@ export function renderPublicPage(link) {
       body: `<h1>${escapeHtml(copy.public.preparing)}</h1><p>${escapeHtml(copy.public.tryAgain)}</p>`,
     })
   }
-  const paper = renderPaperHtml(resume, escapeHtml, { nameTag: 'h1' })
+  const paper = renderPaperHtml(resume, escapeHtml, { nameTag: 'h1', extraClass: 'public-paper' })
   return page({
     title: resume.name,
     statusNote: copy.public.stays,
@@ -57,7 +57,7 @@ export function renderPublicPage(link) {
         <div class="paper-tools public-paper-tools">
           <a class="icon-button" href="/r/${escapeHtml(link.slug)}.pdf" download aria-label="${escapeHtml(copy.public.download)}" title="${escapeHtml(copy.public.download)}"><svg class="icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg></a>
         </div>
-      ${paper.replace('class="paper paper-classic"', 'class="paper paper-classic public-paper"')}
+      ${paper}
       </div>
       <p class="public-actions"><a class="button" href="/r/${escapeHtml(link.slug)}.pdf" target="_blank" rel="noopener">${escapeHtml(copy.public.open)}</a></p>
       ${formatLinks(link.slug)}`,

@@ -687,3 +687,18 @@ test('the plain look draws the same outline in a serif face', async () => {
   assert.deepEqual(words(plain), words(classic))
   for (const count of [8, 24, 28]) assert.deepEqual(await loneHeadings('plain', count), [])
 })
+
+test('the page version of a resume follows its look', () => {
+  const resume = { ...exampleResume(), liveUrl: PDF_LINK }
+  const esc = (value) => String(value)
+  assert.equal(resumeOutline({ ...resume, template: 'plain' }).template, 'plain')
+  assert.equal(resumeOutline(resume).template, 'classic')
+  assert.equal(resumeOutline({ ...resume, template: 'neon' }).template, 'classic')
+  assert.match(renderPaperHtml({ ...resume, template: 'plain' }, esc), /class="paper paper-classic paper-plain"/)
+  assert.match(renderPaperHtml(resume, esc), /class="paper paper-classic"/)
+  assert.match(renderPublicPage({ slug: 'abcdefghij', resume }), /class="paper paper-classic public-paper"/)
+  assert.match(renderPublicPage({ slug: 'abcdefghij', resume: { ...resume, template: 'plain' } }), /class="paper paper-classic paper-plain public-paper"/)
+  // The service loads this file too, and the Vercel bundler leaves out a file that is imported by an address with a query.
+  const paper = readFileSync(new URL('../src/public/paperHtml.js', import.meta.url), 'utf8')
+  assert.deepEqual([...paper.matchAll(/from '([^']+)'/g)].map((found) => found[1]), ['./resumeOutline.js'])
+})
