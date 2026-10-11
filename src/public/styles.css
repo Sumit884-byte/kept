@@ -491,6 +491,28 @@ h1 {
 
 .paper-plain .paper-contact span + span::before { content: "  |  "; }
 
+.posting-result { margin-top: 0.85rem; }
+
+.posting-result > * + * { margin-top: 0.6rem; }
+
+.chips-label { font-weight: 600; font-size: 0.92rem; }
+
+.chips { display: flex; flex-wrap: wrap; gap: 0.4rem; list-style: none; padding: 0; margin-top: 0.4rem; }
+
+.chips li {
+  padding: 0.15rem 0.65rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  font-size: 0.88rem;
+  background: rgba(255, 253, 248, 0.7);
+}
+
+.chips.is-shown li { border-color: var(--green); background: #f4faf6; }
+
+.chips.is-absent li { border-style: dashed; color: var(--muted); }
+
+.posting-result .help { margin-top: 0; }
+
 .look-row { grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr)); margin-bottom: 1.5rem; }
 
 .paper-classic h3 .star-count {
