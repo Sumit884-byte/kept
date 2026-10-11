@@ -1,5 +1,5 @@
 import { bindingFromAccount, sameBinding } from './accountBinding.js'
-import { copy } from '/copy.js?v=opens'
+import { copy } from '/copy.js?v=look'
 import { renderPaperHtml } from './paperHtml.js?v=look'
 import { fullNamesForRole } from '/rolePick.js'
 
@@ -602,7 +602,17 @@ function briefFields(values) {
   return `
     <label class="field"><span>${esc(copy.studio.role)}</span><input name="roleTarget" value="${esc(values.roleTarget || '')}" placeholder="${esc(copy.studio.rolePlaceholder)}"></label>
     <label class="field"><span>${esc(copy.studio.brief)}</span><textarea name="instructions" placeholder="${esc(copy.studio.briefPlaceholder)}">${esc(values.instructions || '')}</textarea></label>
-    <p class="help">${esc(copy.studio.briefHelp)}</p>`
+    <p class="help">${esc(copy.studio.briefHelp)}</p>
+    <h2 class="section-label">${esc(copy.studio.look)}</h2>
+    <div class="choice-row look-row">
+      ${Object.entries(copy.studio.looks).map(([value, look]) => {
+        const on = (values.template || 'classic') === value
+        return `<label class="choice ${on ? 'is-on' : ''}">
+          <input type="radio" name="template" value="${esc(value)}" ${on ? 'checked' : ''}>
+          <span><strong>${esc(look.title)}</strong>${esc(look.body)}</span>
+        </label>`
+      }).join('')}
+    </div>`
 }
 
 function viewStudio() {
@@ -670,6 +680,7 @@ function formFromLink(link) {
     location: link.location || '',
     education: link.education || '',
     experience: link.experience || '',
+    template: link.template || 'classic',
     roleTarget: link.roleTarget || '',
     instructions: link.instructions || '',
     visibility: link.visibility || 'public',
@@ -764,6 +775,7 @@ function blankForm(account) {
     location: account?.location || '',
     education: '',
     experience: '',
+    template: 'classic',
     roleTarget: '',
     instructions: '',
     visibility,
@@ -780,6 +792,7 @@ function readEditor(form) {
     location: String(data.get('location') || ''),
     education: String(data.get('education') || ''),
     experience: String(data.get('experience') || ''),
+    template: String(data.get('template') || 'classic'),
     roleTarget: String(data.get('roleTarget') || ''),
     instructions: String(data.get('instructions') || ''),
     visibility: data.get('visibility') === 'all' ? 'all' : 'public',
@@ -1493,6 +1506,10 @@ document.addEventListener('change', (event) => {
     state.projectNamesSeen = null
     ensureProjects(state.form.visibility)
   }
+  if (event.target.name === 'template' && form?.id === 'editor') {
+    state.form = readEditor(form)
+    if (parse(location.pathname).name === 'detail' && state.current?.resume) saveLook(form)
+  }
   if (event.target.name === 'repo') {
     state.reposTouched = true
     if (!event.target.checked) state.deselectedRepos.add(event.target.value)
@@ -1575,6 +1592,7 @@ function paintPerson(resume, fields) {
     contact,
     education: lines(fields.education),
     experience: lines(fields.experience),
+    template: fields.template || resume.template || 'classic',
     work,
   }
 }
@@ -1614,6 +1632,7 @@ function previewEditor(form) {
     location: body.location,
     education: body.education,
     experience: body.experience,
+    template: body.template,
     resume: paintPerson(state.current.resume, body),
   }
   const slot = document.querySelector('#paper-slot')
@@ -1641,6 +1660,74 @@ function schedulePersonSave() {
       // The page already shows the edit. A later save can try again.
     }
   }, 400)
+}
+
+let lookSaves = Promise.resolve()
+let lookTurn = 0
+let lookFailure = ''
+
+// Drawing the page again replaces the form, so what it says is read first and the cursor is put back.
+function redrawKeepingForm() {
+  const editor = document.querySelector('#editor')
+  const held = editor?.contains(document.activeElement) ? document.activeElement : null
+  const caret = held && typeof held.selectionStart === 'number' ? [held.selectionStart, held.selectionEnd] : null
+  if (editor) state.form = readEditor(editor)
+  render()
+  if (!held?.name || held.type === 'radio' || held.type === 'checkbox') return
+  const again = document.querySelector(`#editor [name="${held.name}"]`)
+  if (!again) return
+  again.focus()
+  if (caret) {
+    again.setSelectionRange(caret[0], caret[1])
+  } else {
+    // An email field does not say where its cursor is. Writing its text again leaves the cursor at the end.
+    const text = again.value
+    again.value = ''
+    again.value = text
+  }
+}
+
+// The PDF beside the form is drawn on the server, so a new look has to be saved before it can be shown.
+async function saveLook(form) {
+  const route = parse(location.pathname)
+  const body = readEditor(form)
+  previewEditor(form)
+  if (!personOnly(body, state.current)) return
+  clearTimeout(personTimer)
+  const work = state.current?.resume?.work || []
+  const turn = ++lookTurn
+  // Saves go one at a time, so the look picked last is saved last. One that waited sends what the
+  // form says by then, but only while this link is still the one that is open.
+  const send = () => {
+    const editor = state.current?.id === route.id ? document.querySelector('#editor') : null
+    return api(`/api/links/${route.id}/person`, {
+      method: 'PATCH',
+      quiet: true,
+      body: { ...(editor ? readEditor(editor) : body), work: editor ? state.current.resume?.work || [] : work },
+    })
+  }
+  const mine = lookSaves.then(send)
+  lookSaves = mine.catch(() => {})
+  let failure = ''
+  try {
+    await mine
+  } catch (error) {
+    failure = error.message
+  }
+  // Only the save that was asked for last says how it ended.
+  if (turn !== lookTurn) return
+  if (parse(location.pathname).name !== 'detail' || state.current?.id !== route.id) return
+  const stale = Boolean(lookFailure) && state.error === lookFailure
+  lookFailure = failure
+  if (failure || stale) {
+    state.error = failure
+    // While the paper is being edited the page is left alone, and the message shows on the next draw.
+    if (!state.editing) redrawKeepingForm()
+    return
+  }
+  // A fresh frame asks for the PDF again. The form beside it is left as it is.
+  const frame = document.querySelector('.pdf-view')
+  if (frame) frame.replaceWith(frame.cloneNode())
 }
 
 document.addEventListener('input', (event) => {
@@ -1711,6 +1798,7 @@ document.addEventListener('submit', async (event) => {
       location: body.location,
       education: body.education,
       experience: body.experience,
+      template: body.template,
       resume: paintPerson(previous.resume, { ...body, work: previous.resume?.work }),
     }
     state.notice = copy.notice.saved
