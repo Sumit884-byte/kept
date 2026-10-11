@@ -5,6 +5,7 @@ import * as db from '../src/db.js'
 import { exampleResume } from '../src/example.js'
 import { fileName, renderPdf } from '../src/pdf.js'
 import { renderPublicPage } from '../src/publicPage.js'
+import { resumeAs, TEXT_FORMATS } from '../src/resumeText.js'
 
 const EXAMPLE_SLUG = 'keptsample'
 
@@ -47,6 +48,15 @@ function sendExamplePage(res) {
   res.end(renderPublicPage({ slug: EXAMPLE_SLUG, resume: exampleResume() }))
 }
 
+function sendExampleText(res, format) {
+  const file = resumeAs(exampleResume(), format)
+  res.setHeader('Content-Type', file.type)
+  res.setHeader('Content-Disposition', `inline; filename="${file.name}"`)
+  res.setHeader('Cache-Control', 'no-store')
+  res.setHeader('X-Robots-Tag', 'noindex, nofollow')
+  res.end(file.body)
+}
+
 export default function handler(req, res) {
   const kept = keptPath(req)
   if (!kept) {
@@ -56,6 +66,13 @@ export default function handler(req, res) {
   const pathname = pathnameOf(kept)
   const examplePdf = req.method === 'GET' && (pathname === '/example.pdf' || pathname === `/r/${EXAMPLE_SLUG}.pdf`)
   const examplePage = req.method === 'GET' && (pathname === '/sample' || pathname === `/r/${EXAMPLE_SLUG}`)
+  const exampleText = req.method === 'GET'
+    ? TEXT_FORMATS.find((format) => pathname === `/r/${EXAMPLE_SLUG}.${format}`)
+    : ''
+  if (exampleText) {
+    sendExampleText(res, exampleText)
+    return
+  }
   if (examplePdf || examplePage) {
     const sent = examplePdf ? sendExamplePdf(res) : Promise.resolve(sendExamplePage(res))
     sent.catch((error) => {
