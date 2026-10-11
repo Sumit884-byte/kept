@@ -48,6 +48,8 @@ Kept stores four tables, and turns them into hypertables on `time` when the `tim
 
 Each open of a link's page, PDF, or text version adds one row. A request is not counted when it is a `HEAD`, when the user agent looks like a link unfurler, a crawler, or a script (`src/automated.js`), or when it comes from the signed-in owner of that link, which also covers the PDF preview inside the studio. One address is counted at most 20 times in 10 minutes for a link, and a link takes at most 30 rows a minute, so a loop cannot fill the table. Opening the page and then its PDF counts as two.
 
+The studio shows how often a link was opened, how many of those were in the last 7 days, and when the last one was.
+
 Star growth is not invented on the first read. A change is attached when an earlier row for that project is at least an hour older. Weekly buckets use `time_bucket('7 days', time)` on Timescale, or `date_trunc('week', time)` when the extension is missing. Two buckets with a higher later star count become a sentence such as "People starring Ledger went from 12 to 40." The sample projects insert an earlier snapshot so that sentence can appear before any real history exists. A live GitHub project does not get line counts on the first version, because those fields stay zero.
 
 A local TimescaleDB container is in `docker-compose.yml` for development. It is the same engine Tiger Cloud uses.

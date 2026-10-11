@@ -652,6 +652,30 @@ export async function recordOpen(linkId, format) {
   )
 }
 
+export async function openCounts(linkIds) {
+  const counts = new Map()
+  if (!linkIds.length) return counts
+  let result
+  try {
+    result = await query(
+      `SELECT link_id,
+              count(*)::int AS total,
+              (count(*) FILTER (WHERE time > NOW() - INTERVAL '7 days'))::int AS week,
+              max(time) AS last
+       FROM link_opens
+       WHERE link_id = ANY($1::uuid[])
+       GROUP BY link_id`,
+      [linkIds],
+    )
+  } catch (error) {
+    // The link list can be asked for before the first migration on a new deploy.
+    if (error.code === '42P01') return counts
+    throw error
+  }
+  for (const row of result.rows) counts.set(row.link_id, { total: row.total, week: row.week, last: row.last })
+  return counts
+}
+
 export async function latestReason(linkId) {
   const result = await query(
     'SELECT reason, time FROM link_updates WHERE link_id = $1 ORDER BY time DESC LIMIT 1',

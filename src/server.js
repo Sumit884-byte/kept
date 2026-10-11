@@ -19,7 +19,7 @@ import { cleanConclusion } from './public/gemmaText.js'
 import { listSampleProjects, samplePerson } from './sample.js'
 import { clerkFrontendHost } from './clerkHost.js'
 import { clerkClient, clerkMiddleware, getAuth } from '@clerk/express'
-import { updatedLabel } from './when.js'
+import { opensLabel, opensShort, updatedLabel } from './when.js'
 import { allow } from './limit.js'
 import { isAutomated } from './automated.js'
 import { decodeCookieValue } from './sessionCookie.js'
@@ -232,6 +232,7 @@ async function presentLink(link) {
   const latest = link.id ? await db.latestReason(link.id) : null
   const trendNotes = link.id && link.resume ? await db.trendNotes(link.id) : []
   const projects = link.id ? await db.loadContext(link) : []
+  const opens = link.id ? (await db.openCounts([link.id])).get(link.id) : null
   return {
     id: link.id,
     slug: link.slug,
@@ -249,6 +250,7 @@ async function presentLink(link) {
     lastError: link.last_error || '',
     refreshedLabel: link.last_refreshed_at ? updatedLabel(link.last_refreshed_at) : '',
     reason: latest?.reason || '',
+    opensLabel: opensLabel(opens),
     trendNotes,
     localReads: projects
       .filter((project) => project.needsLocal || (project.reader === 'gemma' && !cleanConclusion(project.conclusion, project.name)))
@@ -607,6 +609,7 @@ export function buildApp() {
   app.get('/api/links', wrap(async (req, res) => {
     const account = await requireAccount(req)
     const links = await db.listLinks(account.id)
+    const opens = await db.openCounts(links.map((link) => link.id))
     res.json({
       links: links.map((link) => ({
         id: link.id,
@@ -615,6 +618,7 @@ export function buildApp() {
         status: link.status,
         lastError: link.last_error || '',
         refreshedLabel: link.last_refreshed_at ? updatedLabel(link.last_refreshed_at) : '',
+        opensLabel: opensShort(opens.get(link.id)),
         pdfUrl: `${config.publicUrl}/r/${link.slug}.pdf`,
       })),
     })

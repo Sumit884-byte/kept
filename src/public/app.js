@@ -1,5 +1,5 @@
 import { bindingFromAccount, sameBinding } from './accountBinding.js'
-import { copy } from '/copy.js?v=formats'
+import { copy } from '/copy.js?v=opens'
 import { renderPaperHtml } from './paperHtml.js?v=edit'
 import { fullNamesForRole } from '/rolePick.js'
 
@@ -649,7 +649,7 @@ function viewLinks() {
     <div class="cards">
       ${state.links.map((link) => `<div class="card">
         <a class="card-main" href="/links/${esc(link.id)}" data-go="/links/${esc(link.id)}">
-          <span><strong>${esc(link.roleTarget)}</strong><small class="quiet">${esc(link.refreshedLabel || link.lastError || '')}</small></span>
+          <span><strong>${esc(link.roleTarget)}</strong><small class="quiet">${esc([link.refreshedLabel || link.lastError || '', link.opensLabel || ''].filter(Boolean).join(' · '))}</small></span>
         </a>
         <span class="card-side">
           <a href="/links/${esc(link.id)}" data-go="/links/${esc(link.id)}">${esc(copy.links.open)}</a>
@@ -722,6 +722,7 @@ function viewDetail() {
         <button class="button" type="button" data-action="copy">${esc(copy.detail.copy)}</button>
       </div>
       <p class="help">${esc(copy.detail.same)}</p>
+      <p class="opens">${esc(link.opensLabel || copy.detail.unopened)} <span class="help">${esc(copy.detail.opensHelp)}</span></p>
       <p><a href="${esc(link.pageUrl)}">${esc(copy.detail.page)}</a></p>
       <p class="quiet">${esc(copy.detail.also)} ${Object.entries(copy.public.formats).map(([format, label]) => `<a href="${esc(link.pageUrl)}.${esc(format)}">${esc(label)}</a>`).join(' · ')}</p>
       <form id="editor">
