@@ -14,6 +14,7 @@ import { accountFromRequest, createGuestSession, endKeptSession, savePerson, sig
 import { renderPdf, fileName } from './pdf.js'
 import { placeForks, readableResume, withSkills, withStars } from './resume.js'
 import { renderPublicPage } from './publicPage.js'
+import { resumeAs, TEXT_FORMATS } from './resumeText.js'
 import { cleanConclusion } from './public/gemmaText.js'
 import { listSampleProjects, samplePerson } from './sample.js'
 import { clerkFrontendHost } from './clerkHost.js'
@@ -185,13 +186,18 @@ function presentAccount(account) {
 
 async function dressResume(link, projects) {
   const account = link.account_id ? await db.getAccount(link.account_id) : null
-  return withSkills(withStars(placeForks(readableResume(link.resume), projects), projects), projects, {
+  const resume = withSkills(withStars(placeForks(readableResume(link.resume), projects), projects), projects, {
     roleTarget: link.role_target || '',
     instructions: link.instructions || '',
     profileText: account?.profile_readme || '',
     education: link.education || '',
     experience: link.experience || '',
   })
+  if (!resume) return resume
+  return {
+    ...resume,
+    place: link.location || account?.location || '',
+  }
 }
 
 async function shownResume(link) {
@@ -301,15 +307,19 @@ function mapGithubError(error) {
   return new HttpError(502, copy.errors.readFailed)
 }
 
+function placeholderResume(link) {
+  return {
+    name: link?.display_name || copy.name,
+    summary: link ? copy.public.preparing : copy.public.missing,
+    contact: [],
+    work: [],
+    skills: [],
+  }
+}
+
 async function sendPdf(res, link, status = 200) {
   const prepared = link?.resume ? await shownResume(link) : null
-  const resume = prepared || {
-      name: link?.display_name || copy.name,
-      summary: link ? copy.public.preparing : copy.public.missing,
-      contact: [],
-      work: [],
-      skills: [],
-    }
+  const resume = prepared || placeholderResume(link)
   const pdf = await renderPdf(resume)
   res.status(status)
   res.setHeader('Content-Type', 'application/pdf')
@@ -317,6 +327,27 @@ async function sendPdf(res, link, status = 200) {
   res.setHeader('Cache-Control', 'no-store')
   res.setHeader('X-Robots-Tag', 'noindex, nofollow')
   res.send(pdf)
+}
+
+function sendText(res, resume, format, status = 200) {
+  const file = resumeAs(resume, format)
+  res.status(status)
+  res.setHeader('Content-Type', file.type)
+  res.setHeader('Content-Disposition', `inline; filename="${file.name}"`)
+  res.setHeader('Cache-Control', 'no-store')
+  res.setHeader('X-Robots-Tag', 'noindex, nofollow')
+  res.send(file.body)
+}
+
+async function sendResume(res, link, format, status = 200) {
+  if (format === 'pdf') return sendPdf(res, link, status)
+  const prepared = link?.resume ? await shownResume(link) : null
+  return sendText(res, prepared || placeholderResume(link), format, status)
+}
+
+function splitSlug(raw) {
+  const format = ['pdf', ...TEXT_FORMATS].find((item) => raw.endsWith(`.${item}`)) || ''
+  return { slug: format ? raw.slice(0, -format.length - 1) : raw, format }
 }
 
 export function buildApp() {
@@ -725,31 +756,27 @@ export function buildApp() {
   }))
 
   app.get('/r/:slug', wrap(async (req, res) => {
-    const raw = req.params.slug
-    const asPdf = raw.endsWith('.pdf')
-    const slug = asPdf ? raw.slice(0, -4) : raw
+    const { slug, format } = splitSlug(req.params.slug)
     if (slug === STATIC_EXAMPLE_SLUG) {
       const resume = exampleResume()
-      if (asPdf) {
+      if (format === 'pdf') {
         const pdf = await renderPdf(resume)
         res.setHeader('Content-Type', 'application/pdf')
         res.setHeader('Content-Disposition', `inline; filename="${fileName(resume.name)}"`)
         res.setHeader('Cache-Control', 'no-store')
         return res.send(pdf)
       }
+      if (format) return sendText(res, resume, format)
       res.setHeader('Cache-Control', 'no-store')
       res.setHeader('X-Robots-Tag', 'noindex, nofollow')
       return res.type('html').send(renderPublicPage({ slug: STATIC_EXAMPLE_SLUG, resume }))
     }
-    if (!/^[a-z0-9]{10}$/.test(slug)) {
-      return asPdf ? sendPdf(res, null, 404) : res.status(404).type('html').send(renderPublicPage(null))
-    }
-    const link = await db.getLinkBySlug(slug)
+    const link = /^[a-z0-9]{10}$/.test(slug) ? await db.getLinkBySlug(slug) : null
     if (!link) {
-      return asPdf ? sendPdf(res, null, 404) : res.status(404).type('html').send(renderPublicPage(null))
+      return format ? sendResume(res, null, format, 404) : res.status(404).type('html').send(renderPublicPage(null))
     }
     refreshLink(link.id, { mode: 'check', reason: copy.reasons.updated, respectPoll: true }).catch(() => {})
-    if (asPdf) return sendPdf(res, link)
+    if (format) return sendResume(res, link, format)
     res.setHeader('Cache-Control', 'no-store')
     res.setHeader('X-Robots-Tag', 'noindex, nofollow')
     return res.type('html').send(renderPublicPage({ ...link, resume: await shownResume(link) }))
