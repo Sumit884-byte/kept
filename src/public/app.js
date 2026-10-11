@@ -1,7 +1,8 @@
 import { bindingFromAccount, sameBinding } from './accountBinding.js'
-import { copy } from '/copy.js?v=look'
+import { copy } from '/copy.js?v=posting'
 import { renderPaperHtml } from './paperHtml.js?v=look'
 import { fullNamesForRole } from '/rolePick.js'
+import { leadSentence, matchPosting, resumeEvidence } from './postingMatch.js?v=posting'
 
 const BINDING_KEY = 'kept.binding'
 
@@ -45,6 +46,7 @@ const state = {
   deselectedRepos: new Set(),
   projectNamesSeen: null,
   editing: false,
+  posting: '',
 }
 
 function esc(value) {
@@ -598,11 +600,44 @@ function projectChoices(values) {
   </div>`
 }
 
+// What this version can point to: the saved resume, the chosen projects, and what the form says right now.
+function postingEvidence(values) {
+  const chosen = new Set(values.repos || [])
+  const saved = resumeEvidence(state.current?.resume, state.projects.filter((project) => chosen.has(project.fullName)))
+  return [saved, values.headline, values.experience, values.education].filter(Boolean).join('\n')
+}
+
+function chips(names, tone) {
+  return `<ul class="chips ${tone}">${names.map((name) => `<li>${esc(name)}</li>`).join('')}</ul>`
+}
+
+function postingResult(values) {
+  if (!state.posting.trim()) return ''
+  const { instructions } = values
+  const { covered, missing } = matchPosting(state.posting, postingEvidence(values))
+  if (!covered.length && !missing.length) return `<p class="quiet">${esc(copy.studio.postingNone)}</p>`
+  const lead = leadSentence(covered)
+  const offer = lead && !String(instructions || '').includes(lead)
+  return `${covered.length ? `<p class="chips-label">${esc(copy.studio.postingCovered)}</p>${chips(covered, 'is-shown')}` : ''}
+    ${offer ? `<p><button class="text-button" type="button" data-action="posting-lead">${esc(copy.studio.postingLead)}</button> <span class="help">${esc(copy.studio.postingLeadHelp)}</span></p>` : ''}
+    ${missing.length ? `<p class="chips-label">${esc(copy.studio.postingMissing)}</p>${chips(missing, 'is-absent')}<p class="help">${esc(copy.studio.postingMissingHelp)}</p>` : ''}`
+}
+
+function paintPosting() {
+  const node = document.querySelector('[data-posting-result]')
+  const editor = document.querySelector('#editor')
+  if (node && editor) node.innerHTML = postingResult(readEditor(editor))
+}
+
 function briefFields(values) {
   return `
     <label class="field"><span>${esc(copy.studio.role)}</span><input name="roleTarget" value="${esc(values.roleTarget || '')}" placeholder="${esc(copy.studio.rolePlaceholder)}"></label>
     <label class="field"><span>${esc(copy.studio.brief)}</span><textarea name="instructions" placeholder="${esc(copy.studio.briefPlaceholder)}">${esc(values.instructions || '')}</textarea></label>
     <p class="help">${esc(copy.studio.briefHelp)}</p>
+    <h2 class="section-label">${esc(copy.studio.posting)}</h2>
+    <label class="field"><span>${esc(copy.studio.postingField)}</span><textarea name="posting" placeholder="${esc(copy.studio.postingPlaceholder)}">${esc(state.posting)}</textarea></label>
+    <p class="help">${esc(copy.studio.postingHelp)}</p>
+    <div class="posting-result" data-posting-result aria-live="polite">${postingResult(values)}</div>
     <h2 class="section-label">${esc(copy.studio.look)}</h2>
     <div class="choice-row look-row">
       ${Object.entries(copy.studio.looks).map(([value, look]) => {
@@ -1345,6 +1380,19 @@ document.addEventListener('click', async (event) => {
     render()
     return
   }
+  if (action === 'posting-lead') {
+    const editor = document.querySelector('#editor')
+    if (!editor) return
+    const body = readEditor(editor)
+    const lead = leadSentence(matchPosting(state.posting, postingEvidence(body)).covered)
+    if (lead && !body.instructions.includes(lead)) {
+      // Its own line: a brief that ends in "Never mention Acme" must not run on into this sentence.
+      body.instructions = [body.instructions.trim(), lead].filter(Boolean).join('\n')
+    }
+    state.form = body
+    render()
+    return
+  }
   if (action === 'leave-forks') {
     event.preventDefault()
     state.reposTouched = true
@@ -1516,6 +1564,7 @@ document.addEventListener('change', (event) => {
     else state.deselectedRepos.delete(event.target.value)
     if (form) state.form = readEditor(form)
     updateCount()
+    paintPosting()
   }
 })
 
@@ -1619,6 +1668,7 @@ function rememberLocal(body) {
 
 let personTimer = 0
 let rolePickTimer = 0
+let postingTimer = 0
 
 function previewEditor(form) {
   if (!state.current?.resume) return
@@ -1742,6 +1792,16 @@ document.addEventListener('input', (event) => {
   }
   const form = event.target.closest('#editor')
   if (!form) return
+  if (event.target.name === 'posting') {
+    state.posting = event.target.value
+    clearTimeout(postingTimer)
+    postingTimer = setTimeout(paintPosting, 200)
+    return
+  }
+  if (state.posting.trim() && ['headline', 'experience', 'education', 'instructions'].includes(event.target.name)) {
+    clearTimeout(postingTimer)
+    postingTimer = setTimeout(paintPosting, 200)
+  }
   const route = parse(location.pathname)
   if (event.target.name === 'roleTarget' && (route.name === 'detail' || route.name === 'studio')) {
     clearTimeout(rolePickTimer)
