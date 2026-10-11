@@ -20,6 +20,26 @@ export function neverPhrases(instructions = '') {
   return found
 }
 
+// "Lead with React, Go and the billing work." gives ['React', 'Go', 'billing']. A full stop inside a
+// name, as in Node.js, does not end the sentence. The words only count where they open a line, a
+// sentence or a clause, so "Do not lead with PHP" and "an engineering lead with ten years" are left alone.
+export function leadPhrases(instructions = '') {
+  const found = []
+  const opening = /(?:^|[.!?;:,\n]|\b(?:and|then|also|should)\b)[ \t]*(?:[-*•–][ \t]*)?(?:(?:please|always),?[ \t]+)*lead with ((?:[^.!\n]|\.(?=\S))+)/gi
+  for (const match of String(instructions).matchAll(opening)) {
+    for (const part of match[1].split(/,|\band\b/i)) {
+      const phrase = part
+        .trim()
+        .replace(/^["']|["']$/g, '')
+        .replace(/^the\s+/i, '')
+        .replace(/\s+(?:work|projects?)$/i, '')
+        .trim()
+      if (phrase) found.push(phrase)
+    }
+  }
+  return found
+}
+
 export function wantsFirstPerson(instructions = '') {
   return /\bfirst person\b|\bi am\b|\bi'm\b/i.test(instructions)
 }
