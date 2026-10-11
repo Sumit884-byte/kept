@@ -2,6 +2,7 @@ import pg from 'pg'
 import { config } from './config.js'
 import { applyHistory } from './history.js'
 import { sessionId, slug } from './ids.js'
+import { templateId } from './templates.js'
 import { githubConnectPlan } from './public/accountBinding.js'
 
 const { Pool } = pg
@@ -125,6 +126,7 @@ export async function migrate() {
   `)
   await query(`ALTER TABLE links ADD COLUMN IF NOT EXISTS education TEXT`)
   await query(`ALTER TABLE links ADD COLUMN IF NOT EXISTS experience TEXT`)
+  await query(`ALTER TABLE links ADD COLUMN IF NOT EXISTS template TEXT NOT NULL DEFAULT 'classic'`)
   await query(`
     CREATE TABLE IF NOT EXISTS watched_repos (
       link_id UUID NOT NULL REFERENCES links(id) ON DELETE CASCADE,
@@ -403,8 +405,8 @@ export async function createLink(accountId, fields) {
     try {
       const result = await query(
         `INSERT INTO links (
-          id, account_id, slug, visibility, display_name, headline, email, location, role_target, instructions, education, experience, selected_repos, status
-        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'preparing')
+          id, account_id, slug, visibility, display_name, headline, email, location, role_target, instructions, education, experience, selected_repos, template, status
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,'preparing')
         RETURNING *`,
         [
           crypto.randomUUID(),
@@ -420,6 +422,7 @@ export async function createLink(accountId, fields) {
           fields.education || '',
           fields.experience || '',
           fields.repos,
+          templateId(fields.template),
         ],
       )
       return result.rows[0]
@@ -441,6 +444,7 @@ export async function updateLink(id, accountId, fields) {
     instructions: 'instructions',
     education: 'education',
     experience: 'experience',
+    template: 'template',
     selectedRepos: 'selected_repos',
     status: 'status',
   }
