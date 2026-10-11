@@ -1156,7 +1156,8 @@ async function hydrateExampleResume() {
   try {
     const example = await api('/api/example', { timeoutMs: 12000, noRetry: true }).catch(() => ({ resume: null }))
     state.example = example.resume
-    if (state.me?.account) {
+    // A link that is already open has its own form. A blank one here would empty the role and brief it was saved with.
+    if (state.me?.account && !state.current) {
       state.form = blankForm(state.me.account)
       state.filledFor = ''
       state.reposTouched = false
