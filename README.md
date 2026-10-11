@@ -37,13 +37,16 @@ On Render, `LLM_BASE_URL` points at the private Gemma service and `LLM_MODEL` is
 
 Production should use a Tiger Cloud service URL in `TIGER_DATABASE_URL` (or `DATABASE_URL`). The database is TimescaleDB, which Tiger Cloud runs for you. Any host that is not localhost gets TLS.
 
-Kept stores three tables, and turns them into hypertables on `time` when the `timescaledb` extension is present:
+Kept stores four tables, and turns them into hypertables on `time` when the `timescaledb` extension is present:
 
 | Table | What it holds |
 | --- | --- |
 | `project_signals` | Stars, forks, open issues, watchers, the commit count in the window, releases, and the README score. Additions and deletions are columns; the GitHub read currently stores zero for both. |
 | `code_readings` | The conclusion used in the resume, whether the README was thin, and a JSON detail (highlights, skills, and, for a private thin README, the file paths still waiting on the browser). |
 | `link_updates` | Why a link was rewritten. |
+| `link_opens` | One row each time a link's page, PDF, or text version is opened: the time, the link, and which version. Nothing about the visitor is stored. |
+
+Each open of a link's page, PDF, or text version adds one row. A request is not counted when it is a `HEAD`, when the user agent looks like a link unfurler, a crawler, or a script (`src/automated.js`), or when it comes from the signed-in owner of that link, which also covers the PDF preview inside the studio. One address is counted at most 20 times in 10 minutes for a link, and a link takes at most 30 rows a minute, so a loop cannot fill the table. Opening the page and then its PDF counts as two.
 
 Star growth is not invented on the first read. A change is attached when an earlier row for that project is at least an hour older. Weekly buckets use `time_bucket('7 days', time)` on Timescale, or `date_trunc('week', time)` when the extension is missing. Two buckets with a higher later star count become a sentence such as "People starring Ledger went from 12 to 40." The sample projects insert an earlier snapshot so that sentence can appear before any real history exists. A live GitHub project does not get line counts on the first version, because those fields stay zero.
 

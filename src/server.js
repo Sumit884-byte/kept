@@ -21,6 +21,7 @@ import { clerkFrontendHost } from './clerkHost.js'
 import { clerkClient, clerkMiddleware, getAuth } from '@clerk/express'
 import { updatedLabel } from './when.js'
 import { allow } from './limit.js'
+import { isAutomated } from './automated.js'
 import { decodeCookieValue } from './sessionCookie.js'
 import { AppNotInstalled, readerTokens } from './githubApp.js'
 import { isHiddenPath } from './hiddenPath.js'
@@ -206,6 +207,25 @@ async function shownResume(link) {
   const resume = await dressResume(link, projects)
   if (!resume || !link.slug) return resume
   return { ...resume, liveUrl: `${config.publicUrl}/r/${link.slug}.pdf` }
+}
+
+async function openedByOwner(req, link) {
+  const signedIn = Object.keys(readCookies(req)).some((name) => name === 'kept_session' || name.startsWith('__session'))
+  if (!signedIn) return false
+  const account = await accountFrom(req)
+  return account?.id === link.account_id
+}
+
+async function countOpen(req, link, format) {
+  if (req.method !== 'GET' || isAutomated(req.get('user-agent'))) return
+  try {
+    if (await openedByOwner(req, link)) return
+    // One address asking again and again is not that many readers.
+    if (!allow(`open:${link.id}:${clientIp(req)}`, 20, 10 * 60_000)) return
+    await db.recordOpen(link.id, format || 'page')
+  } catch (error) {
+    console.error('open was not counted', error.message)
+  }
 }
 
 async function presentLink(link) {
@@ -776,6 +796,7 @@ export function buildApp() {
       return format ? sendResume(res, null, format, 404) : res.status(404).type('html').send(renderPublicPage(null))
     }
     refreshLink(link.id, { mode: 'check', reason: copy.reasons.updated, respectPoll: true }).catch(() => {})
+    await countOpen(req, link, format)
     if (format) return sendResume(res, link, format)
     res.setHeader('Cache-Control', 'no-store')
     res.setHeader('X-Robots-Tag', 'noindex, nofollow')
