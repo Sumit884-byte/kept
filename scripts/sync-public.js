@@ -7,6 +7,8 @@ const files = [
   'rolePick.js',
   'display.js',
   'resumeOutline.js',
+  'skillNames.js',
+  'postingMatch.js',
 ]
 
 await Promise.all(files.map((name) => copyFile(`src/${name}`, `src/public/${name}`)))
