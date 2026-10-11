@@ -7,7 +7,7 @@ export function pdfText(value) {
     .replace(/[^\t\n\r\x20-\x7E\u00A0-\u00FF]/g, '')
 }
 
-export function fileName(name) {
+export function fileName(name, extension = 'pdf') {
   const base = pdfText(name).trim().replace(/\s+/g, '-').replace(/[^A-Za-z0-9.-]/g, '') || 'resume'
-  return `${base}.pdf`
+  return `${base}.${extension}`
 }

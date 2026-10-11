@@ -22,6 +22,7 @@ import { renderPaperHtml } from '../src/public/paperHtml.js'
 import { countPdfPages } from '../src/pdfLayout.js'
 import { samplePerson, sampleProjects } from '../src/sample.js'
 import { renderPublicPage } from '../src/publicPage.js'
+import { resumeAs, resumeJson, resumeMarkdown, resumePlainText } from '../src/resumeText.js'
 import { modelBase } from '../src/config.js'
 import { updatedLabel } from '../src/when.js'
 import { isLightPath, paintPerson, personFields, personOnly, projectCounts } from '../src/fast.js'
@@ -560,4 +561,61 @@ async function loneHeadings(template, experienceCount) {
 
 test('a section heading stays on the page of its first entry', async () => {
   for (const count of [5, 24, 29]) assert.deepEqual(await loneHeadings('classic', count), [])
+})
+
+test('the same resume is written as markdown, plain text and a data file', () => {
+  const resume = {
+    ...exampleResume(),
+    name: 'Mira Chen',
+    contact: ['mira@example.com', 'Lisbon', 'mira.dev', 'github.com/mira'],
+    experience: ['# Kept, product engineer, 2024', '1. Northwind, engineer', '3) Shops', '---', '~~~ notes', '3.5x faster exports'],
+    liveUrl: PDF_LINK,
+  }
+  const outline = resumeOutline(resume)
+  const titles = outline.sections.flatMap((section) => (section.projects || []).map((item) => item.title))
+  assert.ok(titles.length)
+
+  const markdown = resumeMarkdown(resume)
+  assert.match(markdown, /^# Mira Chen\n/)
+  assert.match(markdown, /\n## Skills\n/)
+  for (const title of titles) assert.ok(markdown.includes(`### ${title}`))
+  assert.deepEqual(markdown.split('\n').filter((line) => line.startsWith('- ')).slice(0, 6), [
+    '- \\# Kept, product engineer, 2024',
+    '- 1\\. Northwind, engineer',
+    '- 3\\) Shops',
+    '- \\---',
+    '- \\~~~ notes',
+    '- 3.5x faster exports',
+  ])
+
+  const text = resumePlainText(resume)
+  assert.match(text, /^Mira Chen\nmira@example\.com \| Lisbon/)
+  assert.match(text, /\nSKILLS\n/)
+  for (const title of titles) assert.ok(text.includes(`\n${title}`))
+  assert.ok(text.trimEnd().endsWith(PDF_LINK))
+
+  const json = JSON.parse(resumeJson(resume))
+  assert.equal(json.basics.name, 'Mira Chen')
+  assert.equal(json.basics.email, 'mira@example.com')
+  assert.equal(json.basics.url, 'https://mira.dev')
+  assert.deepEqual(json.basics.location, { address: 'Lisbon' })
+  assert.equal(json.basics.profiles[0].username, 'mira')
+  assert.deepEqual(json.work[0], { summary: '# Kept, product engineer, 2024' })
+  assert.deepEqual(json.projects.map((item) => item.name), titles)
+  assert.deepEqual(json.skills.map((item) => item.name), resume.skills)
+  const basics = (contact, place) => JSON.parse(resumeJson({ ...resume, contact, place })).basics
+  assert.deepEqual(basics(['mira@example.com', '127.0.0.1', 'mira.dev', 'github.com/mira']).location, { address: '127.0.0.1' })
+  assert.equal(basics(['mira@example.com', '127.0.0.1', 'mira.dev', 'github.com/mira']).url, 'https://mira.dev')
+  assert.deepEqual(basics(['mira@example.com', 'St.Petersburg', 'github.com/mira'], 'St.Petersburg').location, { address: 'St.Petersburg' })
+  assert.equal(basics(['mira@example.com', 'St.Petersburg', 'github.com/mira'], 'St.Petersburg').url, undefined)
+  assert.equal(basics(['mira@example.com', 'mira.dev', 'github.com/mira'], 'Lisbon').url, 'https://mira.dev')
+  assert.equal(basics(['mira@example.com', 'mira.dev', 'github.com/mira'], 'Lisbon').location, undefined)
+  assert.equal(basics(['mira@example.com', 'MiraChen.dev', 'github.com/mira'], '').url, 'https://MiraChen.dev')
+  assert.equal(basics(['mira@example.com', 'MiraChen.dev', 'github.com/mira'], '').location, undefined)
+
+  assert.deepEqual(
+    ['md', 'txt', 'json'].map((format) => resumeAs(resume, format).name),
+    ['Mira-Chen.md', 'Mira-Chen.txt', 'Mira-Chen.json'],
+  )
+  assert.match(resumeAs(resume, 'md').type, /^text\/markdown/)
 })
