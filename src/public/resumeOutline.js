@@ -33,6 +33,7 @@ export function resumeOutline(resume) {
     add({ kind: 'projects', title: copy.pdf.contributions, editable: false, projects: resume.contributions.map(project) })
   }
   return {
+    template: resume.template === 'plain' ? 'plain' : 'classic',
     example: Boolean(resume.example),
     exampleLabel: copy.pdf.example,
     name: resume.name || '',

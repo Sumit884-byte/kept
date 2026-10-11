@@ -24,11 +24,12 @@ function sectionHtml(section, esc, editing) {
   return `${sectionTitle(section.title, esc)}${section.projects.map((item) => projectBlock(item, esc, { editing: editing && section.editable })).join('')}`
 }
 
-export function renderPaperHtml(resume, esc, { editing = false, nameTag = 'h2' } = {}) {
+export function renderPaperHtml(resume, esc, { editing = false, nameTag = 'h2', extraClass = '' } = {}) {
   const doc = resumeOutline(resume)
   if (!doc) return ''
   const contact = doc.contact.map((item) => `<span>${esc(item)}</span>`).join('')
-  return `<article class="paper paper-classic">
+  const look = `${doc.template === 'plain' ? ' paper-plain' : ''}${extraClass ? ` ${esc(extraClass)}` : ''}`
+  return `<article class="paper paper-classic${look}">
     <div class="paper-header-band">
       ${doc.example ? `<p class="paper-eyebrow">${esc(doc.exampleLabel)}</p>` : ''}
       <${nameTag} class="paper-name">${esc(doc.name)}</${nameTag}>

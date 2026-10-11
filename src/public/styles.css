@@ -453,6 +453,44 @@ h1 {
   margin-top: 0.65rem;
 }
 
+.paper.paper-plain {
+  background: #fff;
+  color: #111;
+  font-family: Georgia, "Times New Roman", Times, serif;
+}
+
+.paper-plain .paper-header-band {
+  background: none;
+  border-top: 0;
+  border-bottom: 1px solid #111;
+  margin-inline: 1.85rem;
+  padding: 1.5rem 0 0.8rem;
+  text-align: center;
+}
+
+.paper-plain .paper-name { font-family: inherit; font-weight: 700; }
+
+.paper-plain .paper-intro { border-left: 0; padding-left: 0; }
+
+.paper-plain .paper-intro .paper-line { font-style: italic; }
+
+.paper.paper-plain h2.paper-section-title {
+  display: block;
+  width: 100%;
+  color: #111;
+  font-family: inherit;
+  border-bottom: 1px solid #8a8a8a;
+  padding-bottom: 0.18rem;
+}
+
+.paper.paper-plain h2.paper-section-title::before { display: none; }
+
+.paper-plain h3 { font-family: inherit; }
+
+.paper-plain .paper-contact, .paper-plain .paper-url, .paper-plain h3 .star-count { color: #555; }
+
+.paper-plain .paper-contact span + span::before { content: "  |  "; }
+
 .paper-classic h3 .star-count {
   font-weight: 400;
   font-size: 0.88em;
