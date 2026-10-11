@@ -9,6 +9,7 @@ import { listRepos, profileName } from './github.js'
 import { listSampleProjects, samplePerson } from './sample.js'
 import { clearSessionCookie, readSessionCookie, writeSessionCookie } from './sessionCookie.js'
 import { accountKind } from './public/accountBinding.js'
+import { templateId } from './templates.js'
 import { opensShort, updatedLabel } from './when.js'
 import crypto from 'node:crypto'
 
@@ -262,6 +263,7 @@ export async function savePerson(accountId, linkId, body) {
     location: link.location || '',
     education: link.education || '',
     experience: link.experience || '',
-    resume: link.resume,
+    template: templateId(link.template),
+    resume: link.resume ? { ...link.resume, template: templateId(link.template) } : null,
   }
 }

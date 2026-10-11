@@ -19,6 +19,7 @@ import { cleanConclusion } from './public/gemmaText.js'
 import { listSampleProjects, samplePerson } from './sample.js'
 import { clerkFrontendHost } from './clerkHost.js'
 import { clerkClient, clerkMiddleware, getAuth } from '@clerk/express'
+import { templateId } from './templates.js'
 import { opensLabel, opensShort, updatedLabel } from './when.js'
 import { allow } from './limit.js'
 import { isAutomated } from './automated.js'
@@ -198,6 +199,7 @@ async function dressResume(link, projects) {
   return {
     ...resume,
     place: link.location || account?.location || '',
+    template: templateId(link.template),
   }
 }
 
@@ -243,6 +245,7 @@ async function presentLink(link) {
     location: link.location || '',
     education: link.education || '',
     experience: link.experience || '',
+    template: templateId(link.template),
     roleTarget: link.role_target || '',
     instructions: link.instructions || '',
     selectedRepos: link.selected_repos || [],
@@ -301,6 +304,7 @@ function cleanFields(body) {
     location: String(body.location || '').trim().slice(0, 120),
     education: String(body.education || '').trim().slice(0, 1200),
     experience: String(body.experience || '').trim().slice(0, 1200),
+    template: templateId(body.template),
     roleTarget: String(body.roleTarget || '').trim().slice(0, 160),
     instructions: instructions.trim(),
     repos: picked,
@@ -336,6 +340,7 @@ function placeholderResume(link) {
     contact: [],
     work: [],
     skills: [],
+    template: templateId(link?.template),
   }
 }
 
@@ -892,6 +897,7 @@ function existingToBody(link) {
     location: link.location,
     education: link.education || '',
     experience: link.experience || '',
+    template: link.template,
     roleTarget: link.role_target,
     instructions: link.instructions,
     repos: link.selected_repos,

@@ -1,4 +1,5 @@
 import { educationLines, experienceLines } from './resume.js'
+import { templateId } from './templates.js'
 
 const EMAIL = /^[^\s@]+@[^\s@]+$/
 
@@ -35,6 +36,7 @@ export function personFields(body) {
     location: String(body?.location || '').trim().slice(0, 120),
     education: String(body?.education || '').trim().slice(0, 1200),
     experience: String(body?.experience || '').trim().slice(0, 1200),
+    template: body?.template === undefined ? undefined : templateId(body.template),
     work: Array.isArray(body?.work) ? body.work.slice(0, 12).map((item) => ({
       title: String(item?.title || '').slice(0, 160),
       lines: (Array.isArray(item?.lines) ? item.lines : []).slice(0, 4).map((line) => String(line || '').trim().slice(0, 400)).filter(Boolean),

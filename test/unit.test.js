@@ -702,3 +702,9 @@ test('the page version of a resume follows its look', () => {
   const paper = readFileSync(new URL('../src/public/paperHtml.js', import.meta.url), 'utf8')
   assert.deepEqual([...paper.matchAll(/from '([^']+)'/g)].map((found) => found[1]), ['./resumeOutline.js'])
 })
+
+test('a look that is not on the list is saved as classic', () => {
+  assert.equal(personFields({ template: 'plain' }).template, 'plain')
+  assert.equal(personFields({ template: 'neon' }).template, 'classic')
+  assert.equal(personFields({}).template, undefined)
+})

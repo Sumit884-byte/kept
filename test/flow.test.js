@@ -155,6 +155,20 @@ test('a sample link is written from tiger history', async (t) => {
     assert.equal(unread.opensLabel, 'Opened 5 times, all in the last 7 days. Last opened today.')
     const listed = await fetch(`${base}/api/links`, { headers }).then((res) => res.json())
     assert.equal(listed.links.find((item) => item.id === first.id).opensLabel, 'Opened 5 times')
+    assert.equal(unread.template, 'classic')
+    const looked = await fetch(`${base}/api/links/${first.id}/person`, {
+      method: 'PATCH',
+      headers,
+      body: JSON.stringify({ displayName: 'Mira Chen', headline: 'Product engineer', email: 'mira@example.com', location: 'Lisbon', template: 'plain' }),
+    }).then((res) => res.json())
+    assert.equal(looked.template, 'plain')
+    assert.equal(looked.resume.template, 'plain')
+    const plainLook = await fetch(`${base}/api/links/${first.id}`, { headers }).then((res) => res.json())
+    assert.equal(plainLook.status, 'ready')
+    assert.equal(plainLook.resume.template, 'plain')
+    const plainPdf = Buffer.from(await fetch(`${base}/r/${ready.slug}.pdf`, { headers }).then((res) => res.arrayBuffer()))
+    assert.match(plainPdf.toString('latin1'), /Times-Roman/)
+    assert.match(await fetch(`${base}/r/${ready.slug}`, { headers }).then((res) => res.text()), /paper-plain/)
     const sample = await fetch(`${base}/sample`, { redirect: 'manual' })
     assert.equal(sample.status, 302)
     const location = sample.headers.get('location')
