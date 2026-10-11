@@ -1,38 +1,5 @@
 import { briefTokens } from './brief.js'
-
-const NAMED = [
-  ['React Native', /\breact native\b/i],
-  ['Next.js', /\bnext\.?js\b/i],
-  ['Node.js', /\bnode\.?js\b/i],
-  ['TypeScript', /\btypescript\b/i],
-  ['JavaScript', /\bjavascript\b/i],
-  ['PostgreSQL', /\bpostgres(?:ql)?\b/i],
-  ['GraphQL', /\bgraphql\b/i],
-  ['Tailwind', /\btailwind(?:css)?\b/i],
-  ['FastAPI', /\bfastapi\b/i],
-  ['Express', /\bexpress(?:\.js)?\b/i],
-  ['Fastify', /\bfastify\b/i],
-  ['Django', /\bdjango\b/i],
-  ['Flask', /\bflask\b/i],
-  ['Python', /\bpython\b/i],
-  ['React', /\breact\b/i],
-  ['Vue', /\bvue(?:\.js)?\b/i],
-  ['Svelte', /\bsvelte\b/i],
-  ['Angular', /\bangular\b/i],
-  ['Kotlin', /\bkotlin\b/i],
-  ['Swift', /\bswift\b/i],
-  ['Ruby', /\bruby\b/i],
-  ['Rust', /\brust\b/i],
-  ['Elixir', /\belixir\b/i],
-  ['PHP', /\bphp\b/i],
-  ['Java', /\bjava\b(?!script)/i],
-  ['Redis', /\bredis\b/i],
-  ['Docker', /\bdocker\b/i],
-  ['Prisma', /\bprisma\b/i],
-  ['Figma', /\bfigma\b/i],
-  ['CSS', /\bcss\b/i],
-  ['HTML', /\bhtml\b/i],
-]
+import { NAMED } from './skillNames.js'
 
 const FROM_DEPENDENCY = {
   react: 'React',

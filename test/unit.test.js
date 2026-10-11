@@ -708,3 +708,109 @@ test('a look that is not on the list is saved as classic', () => {
   assert.equal(personFields({ template: 'neon' }).template, 'classic')
   assert.equal(personFields({}).template, undefined)
 })
+
+test('a job posting is compared with what this version shows', async () => {
+  const { leadSentence, matchPosting, postingTerms, resumeEvidence, shows } = await import('../src/postingMatch.js')
+  const asked = (posting) => postingTerms(posting).map((term) => term.name)
+  const posting = `We are hiring a product engineer. You will express ideas clearly and move at a swift pace.
+    You have shipped React and TypeScript, know PostgreSQL, and have run services on AWS with Kubernetes.
+    Experience with Go, CI/CD and REST APIs is a plus. Java is not required.`
+  assert.deepEqual(asked(posting), ['React', 'TypeScript', 'PostgreSQL', 'AWS', 'Kubernetes', 'Go', 'CI/CD', 'REST', 'Java'])
+  for (const [text, tools] of [
+    ['We use Node and Express.', ['Node.js', 'Express']],
+    ['Experience with Node.js and Express.js is required.', ['Node.js', 'Express']],
+    ['We write Golang services. Backend written in Go.', ['Go']],
+    ['- Go\n- Express\n- React', ['Go', 'Express', 'React']],
+    ['Requirements\n- Strong experience with Go\n- Familiarity with Kubernetes and AWS', ['Go', 'Kubernetes', 'AWS']],
+    ['What you bring\n• 3+ years of Node\n• Comfortable with Express\n• Bonus: Spring', ['Node.js', 'Express', 'Spring']],
+    ['Backend: Go\nFrontend: React, TypeScript', ['Go', 'React', 'TypeScript']],
+    ['1. Go', ['Go']],
+    ['Go is our main backend language. React is used on the front.', ['Go', 'React']],
+    ['Machine Learning Engineer', ['Machine learning']],
+    ['Java, Spring Boot, Hibernate', ['Java', 'Spring']],
+    ['Java, Spring, Spring Boot, Hibernate', ['Java', 'Spring']],
+    ['Experience with Spring and Spring Boot is required.', ['Spring']],
+    ['Long-term Spring Boot experience', ['Spring']],
+    ['Kotlin + Spring', ['Kotlin', 'Spring']],
+    ['Experience in Spring and Hibernate', ['Spring']],
+    ['C#, ASP.NET Core and SQL Server', ['C#', '.NET', 'SQL']],
+    ['Strong SQL skills; NoSQL is a plus', ['SQL']],
+    ['looking for a senior react developer', ['React']],
+    ["we're a small team using react and node on aws", ['React', 'AWS']],
+    ['REQUIREMENTS: 3+ YEARS OF REACT AND TYPESCRIPT', ['React', 'TypeScript']],
+    ['python, django, flask', ['Python', 'Django', 'Flask']],
+    ['python and flask', ['Python', 'Flask']],
+    ['Full Stack Engineer, React & Node', ['React', 'Node.js']],
+    ['Swift and SwiftUI on iOS. Rust is a plus. Ruby on Rails apps.', ['Swift', 'Rust', 'Ruby', 'Rails']],
+  ]) assert.deepEqual(asked(text), tools, text)
+  for (const prose of [
+    'Be kind, go far, and react well to feedback.',
+    'You react quickly to changing priorities.',
+    'React quickly to changing priorities.',
+    'We are committed to an accessible interview process.',
+    'You will build payment rails for merchants.',
+    'Express yourself, then rest. Spring 2027 start.',
+    'Software Engineering Intern (Spring/Summer 2027)',
+    'Internships run in Spring, Summer and Fall.',
+    'Start date: Spring\nLocation: Remote',
+    'Graduating in Spring or later.',
+    'Spring is when our cohort starts.',
+    'Join the team at American Express.',
+    'Each Node: 16 cores',
+    'Keep water in a flask\nat your desk.',
+    'You watch how customers react\nand adjust the plan.',
+    'Go to market with us. Go and see our blog.',
+  ]) assert.deepEqual(asked(prose), [], prose)
+  for (const both of [
+    'Requirements: Java, Spring, Hibernate',
+    'We use Node and Express.',
+    'Experience with ReactJS and ExpressJS',
+    'SwiftUI on iOS',
+    'Skills: Go, Rust, Ruby, Flask',
+    'Rails developer',
+  ]) assert.deepEqual(matchPosting(both, both).missing, [], both)
+  const started = performance.now()
+  for (const hostile of ['spring, '.repeat(2500), 'Go and or '.repeat(2000), ' ,'.repeat(10000), '- '.repeat(10000)]) postingTerms(hostile)
+  assert.ok(performance.now() - started < 2000)
+
+  const resume = {
+    headline: 'Product engineer',
+    skills: ['TypeScript', 'React'],
+    experience: ['Northwind, engineer: moved the deploy to GitHub Actions'],
+    work: [{ title: 'Ledger', lines: ['Invoices kept in Postgres behind a RESTful service.'] }],
+    contributions: [{ title: 'shops/ledger', line: 'Add a checklist' }],
+  }
+  const evidence = resumeEvidence(resume, [{ name: 'relay', description: 'A queue worker', language: 'Go' }])
+  assert.deepEqual(matchPosting(posting, evidence), {
+    covered: ['React', 'TypeScript', 'PostgreSQL', 'Go', 'CI/CD', 'REST'],
+    missing: ['AWS', 'Kubernetes', 'Java'],
+  })
+  assert.deepEqual(matchPosting(posting, resumeEvidence(resume)).missing, ['AWS', 'Kubernetes', 'Go', 'Java'])
+  assert.deepEqual(matchPosting('', evidence), { covered: [], missing: [] })
+  for (const [wanted, line, covered] of [
+    ['Build REST APIs for partners.', 'Keys are encrypted at rest and rotated weekly.', []],
+    ['Strong SQL skills required.', 'Stores events in a NoSQL document store.', []],
+    ['Experience with WCAG and accessibility audits', 'Makes invoices accessible from any device.', []],
+    ['Java and Spring Boot', 'B.Sc., spring 2023', []],
+    ['Java and Spring Boot', 'Teaching Assistant, Spring Semester 2023', []],
+    ['Java and Spring Boot', 'CS61B-Spring-2022', []],
+    ['Java and Spring Boot', 'A Java service on Spring', ['Java', 'Spring']],
+    ['Experience with machine learning', 'Measures 250 ml doses.', []],
+    ['Experience with .NET and SQL', 'An ASP.NET Core site on PostgreSQL', ['.NET', 'SQL']],
+    ['Strong SQL skills', 'PLpgSQL', ['SQL']],
+    ['Strong SQL skills', 'TSQL', ['SQL']],
+    ['Strong SQL skills', 'GraphQL', []],
+  ]) assert.deepEqual(matchPosting(wanted, line).covered, covered, `${wanted} / ${line}`)
+  assert.deepEqual(matchPosting('We use Git', resumeEvidence({ work: [{ title: 'Vault', lines: ['Anything at all'] }] })).covered, ['Git'])
+  assert.deepEqual(matchPosting('We use Git', resumeEvidence({ headline: 'Engineer' })).missing, ['Git'])
+
+  assert.equal(shows('Go', 'A worker written in Go'), true)
+  assert.equal(shows('go', 'Let us go'), false)
+  assert.equal(shows('interface', 'A new interface for shops'), true)
+  assert.equal(shows('face', 'A new interface for shops'), false)
+  assert.equal(shows('React', 'Reactive streams'), false)
+  assert.equal(shows('Spring', 'CS61B-Spring-2022'), false)
+  assert.equal(leadSentence(['React']), 'Lead with React.')
+  assert.equal(leadSentence(['React', 'Go', 'REST']), 'Lead with React, Go and REST.')
+  assert.equal(leadSentence([]), '')
+})
