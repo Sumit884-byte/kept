@@ -168,16 +168,23 @@ const styles = StyleSheet.create({
 })
 
 function Section({ title, first, children }) {
+  const [lead, ...rest] = React.Children.toArray(children)
   return React.createElement(
     View,
     { style: first ? styles.sectionFirst : styles.section },
+    // The heading and its first entry move to the next page together, so a heading is never left alone.
     React.createElement(
       View,
-      { style: styles.sectionHead, minPresenceAhead: 48 },
-      React.createElement(View, { style: styles.sectionMark }),
-      React.createElement(Text, { style: styles.sectionTitle }, pdfText(String(title || '').toUpperCase())),
+      { wrap: false },
+      React.createElement(
+        View,
+        { style: styles.sectionHead },
+        React.createElement(View, { style: styles.sectionMark }),
+        React.createElement(Text, { style: styles.sectionTitle }, pdfText(String(title || '').toUpperCase())),
+      ),
+      lead,
     ),
-    children,
+    ...rest,
   )
 }
 
